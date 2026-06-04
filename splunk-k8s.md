@@ -13,17 +13,18 @@
 2. [Architecture Overview](#2-architecture-overview)
 3. [Install Splunk Enterprise 10.4.0](#3-install-splunk-enterprise-1040)
 4. [Configure Splunk Enterprise — Indexes and HEC Token](#4-configure-splunk-enterprise--indexes-and-hec-token)
-5. [Install and Verify KinD](#5-install-and-verify-kind)
-6. [Create a KinD Cluster](#6-create-a-kind-cluster)
-7. [Install kubectl and Verify Cluster Access](#7-install-kubectl-and-verify-cluster-access)
-8. [Install Helm](#8-install-helm)
-9. [Deploy Splunk OpenTelemetry Collector for Kubernetes](#9-deploy-splunk-opentelemetry-collector-for-kubernetes)
-10. [Deploy a Sample Application](#10-deploy-a-sample-application)
-11. [Verify Data Flow into Splunk Enterprise](#11-verify-data-flow-into-splunk-enterprise)
-12. [Build Kubernetes Monitoring Dashboards](#12-build-kubernetes-monitoring-dashboards)
-13. [Set Up Alerts](#13-set-up-alerts)
-14. [Troubleshooting](#14-troubleshooting)
-15. [Clean Up](#15-clean-up)
+5. [Remove Podman and Install Docker CE](#5-remove-podman-and-install-docker-ce)
+6. [Install and Verify KinD](#6-install-and-verify-kind)
+7. [Create a KinD Cluster](#7-create-a-kind-cluster)
+8. [Install kubectl and Verify Cluster Access](#8-install-kubectl-and-verify-cluster-access)
+9. [Install Helm](#9-install-helm)
+10. [Deploy Splunk OpenTelemetry Collector for Kubernetes](#10-deploy-splunk-opentelemetry-collector-for-kubernetes)
+11. [Deploy a Sample Application](#11-deploy-a-sample-application)
+12. [Verify Data Flow into Splunk Enterprise](#12-verify-data-flow-into-splunk-enterprise)
+13. [Build Kubernetes Monitoring Dashboards](#13-build-kubernetes-monitoring-dashboards)
+14. [Set Up Alerts](#14-set-up-alerts)
+15. [Troubleshooting](#15-troubleshooting)
+16. [Clean Up](#16-clean-up)
 
 ---
 
@@ -35,11 +36,13 @@ Before starting, make sure the following are installed and available on your loc
 
 | Tool | Minimum Version | Purpose |
 |------|----------------|---------|
-| Docker Desktop | 20.x or later | Required by KinD to run cluster nodes as containers |
+| Docker CE | 20.x or later | Required by KinD to run cluster nodes as containers |
 | KinD | v0.20+ | Kubernetes in Docker — local cluster |
 | kubectl | v1.27+ | CLI to interact with your cluster |
 | Helm | v3.12+ | Package manager for Kubernetes |
 | A web browser | Any modern browser | Splunk Enterprise Web UI |
+
+> **Important:** This workshop uses **Docker CE**, not Podman. KinD's Podman provider is experimental and causes IPv6 subnet pool errors on RHEL 9. See [Step 5](#5-remove-podman-and-install-docker-ce) to remove Podman and install Docker CE before proceeding.
 
 ### Hardware Recommendations
 
@@ -56,14 +59,6 @@ Before starting, make sure the following are installed and available on your loc
 | Disk | Minimum 20 GB free |
 | User | Root or sudo privileges |
 | Ports | 8000 (Web UI), 9997 (Forwarder), 8088 (HEC), 8089 (Management) |
-
-### Check Docker is Running
-
-```bash
-docker version
-```
-
-You should see both Client and Server information. If Docker is not running, start Docker Desktop before proceeding.
 
 ---
 
@@ -92,7 +87,8 @@ You should see both Client and Server information. If Docker is not running, sta
 │  │  └──────────────────────────────────┘   │   │
 │  └──────────────────────────────────────────┘   │
 │                        │                        │
-│                   HTTP / HEC (:8088)             │
+│              HTTPS / HEC (:8088)                │
+│              via Docker bridge 172.18.0.1       │
 │                        │                        │
 │  ┌─────────────────────▼───────────────────┐    │
 │  │     Splunk Enterprise 10.4.0            │    │
@@ -101,7 +97,7 @@ You should see both Client and Server information. If Docker is not running, sta
 │  │  - Log Search  (port 8000)              │    │
 │  │  - Dashboards                           │    │
 │  │  - Alerts                               │    │
-│  │  - HEC Endpoint (port 8088)             │    │
+│  │  - HEC Endpoint (port 8088 / HTTPS)     │    │
 │  └─────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────┘
 ```
@@ -109,7 +105,7 @@ You should see both Client and Server information. If Docker is not running, sta
 **Data flow:**
 1. The Splunk OTel Collector runs as a DaemonSet on every node in your KinD cluster.
 2. It scrapes container logs, node metrics, and Kubernetes API events.
-3. It forwards all data over HTTP to your **local Splunk Enterprise instance** using the HTTP Event Collector (HEC) on port `8088`.
+3. It forwards all data over **HTTPS** to your local Splunk Enterprise instance via the Docker bridge IP (`172.18.0.1`) on port `8088`.
 4. You search, visualize, and alert on that data inside Splunk Enterprise at `http://<host-ip>:8000`.
 
 ---
@@ -289,15 +285,15 @@ You should now have two new indexes: `k8s_logs` and `k8s_metrics`.
 Your local HEC endpoint is:
 
 ```
-http://<your-server-ip>:8088/services/collector/event
+https://<your-server-ip>:8088/services/collector/event
 ```
 
-> **Note:** Since Splunk Enterprise is running locally (not in the cloud), you use `http://` and port `8088` by default. If you have configured SSL on your Splunk instance, use `https://` and ensure your certificate is valid or set `insecureSkipVerify: true` in the collector values.
+> **Important:** Splunk Enterprise enables **SSL on HEC by default** since version 8.x. Port `8088` serves **HTTPS** — not plain HTTP. Always use `https://` with the `-k` flag (skip certificate verification) for local/self-signed certificates. Using `http://` will result in the error `curl: (1) Received HTTP/0.9 when not allowed`.
 
 **Test the HEC endpoint from your machine:**
 
 ```bash
-curl http://<your-server-ip>:8088/services/collector/event \
+curl -k https://<your-server-ip>:8088/services/collector/event \
   -H "Authorization: Splunk <YOUR-HEC-TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{"event": "HEC test from workshop", "index": "k8s_logs"}'
@@ -305,19 +301,73 @@ curl http://<your-server-ip>:8088/services/collector/event \
 
 Expected response: `{"text":"Success","code":0}`
 
+> **If you get `HTTP/0.9 when not allowed`:** You used `http://` instead of `https://`. Add `-k` and switch to `https://` as shown above.
+
 ---
 
-## 5. Install and Verify KinD
+## 5. Remove Podman and Install Docker CE
 
-If KinD is already installed, skip to Step 6.
+KinD's Podman provider is **experimental** on RHEL 9 and causes the following error when creating clusters:
 
-### Step 5.1 — Install KinD on macOS
-
-```bash
-brew install kind
+```
+ERROR: failed to create cluster: failed to ensure podman network:
+command "podman network create -d=bridge --ipv6 --subnet ... kind" failed
+Error: could not find free subnet from subnet pools
 ```
 
-### Step 5.1 — Install KinD on Linux
+This happens because Podman exhausts its IPv6 subnet pool. The fix is to remove Podman and use Docker CE instead.
+
+### Step 5.1 — Remove Podman and All Related Packages
+
+```bash
+# Stop and disable podman services
+systemctl stop podman podman.socket 2>/dev/null
+systemctl disable podman podman.socket 2>/dev/null
+
+# Remove podman and all related packages
+dnf remove -y podman podman-docker podman-compose \
+  containers-common container-selinux \
+  buildah skopeo runc crun slirp4netns \
+  fuse-overlayfs netavark aardvark-dns
+
+# Clean up config and data directories
+rm -rf /etc/containers
+rm -rf /var/lib/containers
+rm -rf ~/.config/containers
+rm -rf ~/.local/share/containers
+rm -rf /etc/cni/net.d/*
+
+# Verify podman is removed
+which podman || echo "Podman removed successfully"
+```
+
+---
+
+### Step 5.2 — Install Docker CE
+
+```bash
+# Add Docker CE repository
+dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+
+# Install Docker CE
+dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+
+# Start and enable Docker
+systemctl enable --now docker
+
+# Verify Docker is running
+docker version
+```
+
+You should see both **Client** and **Server** sections in the output.
+
+---
+
+## 6. Install and Verify KinD
+
+If KinD is already installed, skip to Step 7.
+
+### Step 6.1 — Install KinD on Linux
 
 ```bash
 curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
@@ -325,15 +375,19 @@ chmod +x ./kind
 sudo mv ./kind /usr/local/bin/kind
 ```
 
-### Step 5.1 — Install KinD on Windows
+### Step 6.1 — Install KinD on macOS
+
+```bash
+brew install kind
+```
+
+### Step 6.1 — Install KinD on Windows
 
 ```powershell
 winget install Kubernetes.kind
-# Or using choco
-choco install kind
 ```
 
-### Step 5.2 — Verify KinD Installation
+### Step 6.2 — Verify KinD Installation
 
 ```bash
 kind version
@@ -347,9 +401,9 @@ kind v0.23.0 go1.21.x linux/amd64
 
 ---
 
-## 6. Create a KinD Cluster
+## 7. Create a KinD Cluster
 
-### Step 6.1 — Create the Cluster Configuration File
+### Step 7.1 — Create the Cluster Configuration File
 
 Create a file named `kind-cluster.yaml`:
 
@@ -357,6 +411,9 @@ Create a file named `kind-cluster.yaml`:
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: splunk-workshop
+networking:
+  ipFamily: ipv4          # Force IPv4 only — avoids IPv6 subnet pool issues
+  disableDefaultCNI: false
 nodes:
   - role: control-plane
     kubeadmConfigPatches:
@@ -379,15 +436,15 @@ nodes:
         containerPath: /var/log
 ```
 
-> Creates a cluster named `splunk-workshop` with one control-plane and two worker nodes. `/var/log` is mounted into workers so the collector can read node logs.
+> The `networking.ipFamily: ipv4` setting forces IPv4-only networking, preventing the IPv6 subnet pool exhaustion error seen with Podman. Creates one control-plane and two worker nodes. `/var/log` is mounted into workers so the collector can read node logs.
 
-### Step 6.2 — Create the Cluster
+### Step 7.2 — Create the Cluster
 
 ```bash
 kind create cluster --config kind-cluster.yaml
 ```
 
-This takes **3–5 minutes**. Expected output:
+This takes **3–5 minutes**. You should now see Docker (not Podman) in the output — no `enabling experimental podman provider` message:
 
 ```
 Creating cluster "splunk-workshop" ...
@@ -401,7 +458,35 @@ Creating cluster "splunk-workshop" ...
 Set kubectl context to "kind-splunk-workshop"
 ```
 
-### Step 6.3 — Verify the Cluster is Up
+### Step 7.3 — Identify the Docker Bridge IP for HEC
+
+KinD nodes run inside Docker containers. The host's `localhost` / `127.0.0.1` is **not** reachable from inside the cluster. You must use the **Docker bridge IP** instead.
+
+```bash
+ip addr show | grep -A2 "br-"
+```
+
+Look for the bridge interface that has your KinD worker veth interfaces attached (`master br-xxxxxxxx`). Its IP is your HEC target:
+
+```
+br-87854c5ffb1c: ...
+    inet 172.18.0.1/16 ...    ← use this IP
+```
+
+> In most setups this is `172.18.0.1`. The `docker0` bridge (`172.17.0.1`) is typically DOWN — do not use it.
+
+Confirm it is reachable:
+
+```bash
+curl -k https://172.18.0.1:8088/services/collector/event \
+  -H "Authorization: Splunk <YOUR-HEC-TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"event": "bridge test", "index": "k8s_logs"}'
+```
+
+Expected: `{"text":"Success","code":0}`
+
+### Step 7.4 — Verify the Cluster is Up
 
 ```bash
 kubectl cluster-info --context kind-splunk-workshop
@@ -409,16 +494,11 @@ kubectl cluster-info --context kind-splunk-workshop
 
 ---
 
-## 7. Install kubectl and Verify Cluster Access
+## 8. Install kubectl and Verify Cluster Access
 
-If `kubectl` is already installed, skip to Step 7.2.
+If `kubectl` is already installed, skip to Step 8.2.
 
-### Step 7.1 — Install kubectl
-
-**macOS:**
-```bash
-brew install kubectl
-```
+### Step 8.1 — Install kubectl
 
 **Linux:**
 ```bash
@@ -427,12 +507,17 @@ chmod +x kubectl
 sudo mv kubectl /usr/local/bin/kubectl
 ```
 
+**macOS:**
+```bash
+brew install kubectl
+```
+
 **Windows:**
 ```powershell
 winget install Kubernetes.kubectl
 ```
 
-### Step 7.2 — Verify Context and Node Status
+### Step 8.2 — Verify Context and Node Status
 
 ```bash
 kubectl config current-context
@@ -450,7 +535,7 @@ splunk-workshop-worker          Ready    <none>          4m    v1.30.0
 splunk-workshop-worker2         Ready    <none>          4m    v1.30.0
 ```
 
-### Step 7.3 — Verify System Pods
+### Step 8.3 — Verify System Pods
 
 ```bash
 kubectl get pods -n kube-system
@@ -460,18 +545,18 @@ All pods should show `Running` or `Completed` before proceeding.
 
 ---
 
-## 8. Install Helm
+## 9. Install Helm
 
-### Step 8.1 — Install Helm
-
-**macOS:**
-```bash
-brew install helm
-```
+### Step 9.1 — Install Helm
 
 **Linux:**
 ```bash
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+```
+
+**macOS:**
+```bash
+brew install helm
 ```
 
 **Windows:**
@@ -479,13 +564,13 @@ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 winget install Helm.Helm
 ```
 
-### Step 8.2 — Verify Helm Installation
+### Step 9.2 — Verify Helm Installation
 
 ```bash
 helm version
 ```
 
-### Step 8.3 — Add the Splunk Helm Repository
+### Step 9.3 — Add the Splunk Helm Repository
 
 ```bash
 helm repo add splunk-otel-collector-chart https://signalfx.github.io/splunk-otel-collector-chart
@@ -494,79 +579,48 @@ helm repo update
 
 ---
 
-## 9. Deploy Splunk OpenTelemetry Collector for Kubernetes
+## 10. Deploy Splunk OpenTelemetry Collector for Kubernetes
 
-### Step 9.1 — Create the Monitoring Namespace
+### Step 10.1 — Create the Monitoring Namespace
 
 ```bash
 kubectl create namespace splunk-monitoring
 ```
 
-### Step 9.2 — Create a Secret for the HEC Token
+### Step 10.2 — Create the Helm Values File
+
+The chart already mounts `/var/log` and `/var/lib/docker/containers` internally — do **not** add `extraVolumes` or `extraVolumeMounts` for these paths, as that causes a `Duplicate value` install error.
+
+Use the Docker bridge IP (`172.18.0.1`) identified in Step 7.3 as the HEC endpoint host. Create `values.yaml`:
 
 ```bash
-kubectl create secret generic splunk-hec-secret \
-  --from-literal=splunk_hec_token=<YOUR-HEC-TOKEN> \
-  -n splunk-monitoring
-```
-
-Replace `<YOUR-HEC-TOKEN>` with the token you copied in Step 4.3.
-
-Verify:
-
-```bash
-kubectl get secret splunk-hec-secret -n splunk-monitoring
-```
-
-### Step 9.3 — Create the Helm Values File
-
-Create a file named `splunk-otel-values.yaml`. Replace `<YOUR-SERVER-IP>` with the IP address of your Splunk Enterprise host:
-
-```yaml
+cat > values.yaml << 'EOF'
 ################################################################
-# Splunk Platform (Enterprise) connection settings
+# Splunk Enterprise — KinD Workshop
+# HEC host: Docker bridge IP 172.18.0.1
+# HEC port: 8088 (HTTPS, self-signed cert)
 ################################################################
+
 splunkPlatform:
-  # HEC endpoint pointing to your local Splunk Enterprise instance
-  endpoint: "http://<YOUR-SERVER-IP>:8088/services/collector/event"
-
-  # Token loaded from Kubernetes secret — leave blank here
-  token: ""
-
-  # Target indexes created in Step 4.1
+  endpoint: "https://172.18.0.1:8088/services/collector/event"
+  token: "<YOUR-HEC-TOKEN>"
   index: "k8s_logs"
   metricsIndex: "k8s_metrics"
-
-  # Set to true if Splunk Enterprise does not have a valid TLS cert
-  insecureSkipVerify: true
+  insecureSkipVerify: true     # required for self-signed cert
 
 ################################################################
 # Cluster identification
 ################################################################
 clusterName: "kind-splunk-workshop"
+environment: "workshop"
 
 ################################################################
-# DaemonSet — runs on every node
+# DaemonSet agent — runs on every node
+# Note: do NOT add extraVolumes for varlog/varlibdockercontainers
+# — the chart defines these internally; duplicates cause install failure
 ################################################################
 agent:
   enabled: true
-
-  extraVolumes:
-    - name: varlog
-      hostPath:
-        path: /var/log
-    - name: varlibdockercontainers
-      hostPath:
-        path: /var/lib/docker/containers
-
-  extraVolumeMounts:
-    - name: varlog
-      mountPath: /var/log
-      readOnly: true
-    - name: varlibdockercontainers
-      mountPath: /var/lib/docker/containers
-      readOnly: true
-
   resources:
     limits:
       cpu: 500m
@@ -576,11 +630,10 @@ agent:
       memory: 128Mi
 
 ################################################################
-# Cluster receiver — collects Kubernetes API metrics and events
+# Cluster receiver — Kubernetes API metrics and events
 ################################################################
 clusterReceiver:
   enabled: true
-
   resources:
     limits:
       cpu: 200m
@@ -596,23 +649,20 @@ logsCollection:
   containers:
     enabled: true
     excludeAgentLogs: true
-
-################################################################
-# Environment tag
-################################################################
-environment: "workshop"
+EOF
 ```
 
-> **Key difference from Splunk Cloud:** The endpoint uses `http://` and your server's local IP on port `8088`, and `insecureSkipVerify: true` is set since a local Splunk Enterprise install typically uses a self-signed certificate.
+Replace `<YOUR-HEC-TOKEN>` with your actual token from Step 4.3.
 
-### Step 9.4 — Install the Splunk OTel Collector Chart
+---
+
+### Step 10.3 — Install the Splunk OTel Collector Chart
 
 ```bash
 helm install splunk-otel-collector \
   splunk-otel-collector-chart/splunk-otel-collector \
   --namespace splunk-monitoring \
-  --values splunk-otel-values.yaml \
-  --set splunkPlatform.token=<YOUR-HEC-TOKEN>
+  --values values.yaml
 ```
 
 Expected output:
@@ -625,7 +675,11 @@ STATUS: deployed
 REVISION: 1
 ```
 
-### Step 9.5 — Verify the Collector Pods are Running
+> **If you see `Duplicate value: "varlog"` error:** Remove any `extraVolumes` / `extraVolumeMounts` sections from your `values.yaml` — the chart defines these internally. Run `helm uninstall splunk-otel-collector -n splunk-monitoring` and reinstall with the clean values file above.
+
+---
+
+### Step 10.4 — Verify the Collector Pods are Running
 
 ```bash
 kubectl get pods -n splunk-monitoring
@@ -640,7 +694,7 @@ splunk-otel-collector-agent-def34                       1/1     Running   0     
 splunk-otel-collector-k8s-cluster-receiver-xyz56        1/1     Running   0          2m
 ```
 
-### Step 9.6 — Check Collector Logs
+### Step 10.5 — Check Collector Logs
 
 ```bash
 kubectl logs -n splunk-monitoring \
@@ -656,15 +710,15 @@ Everything is ready. Begin running and processing data.
 
 ---
 
-## 10. Deploy a Sample Application
+## 11. Deploy a Sample Application
 
-### Step 10.1 — Create a Namespace
+### Step 11.1 — Create a Namespace
 
 ```bash
 kubectl create namespace demo-app
 ```
 
-### Step 10.2 — Deploy nginx
+### Step 11.2 — Deploy nginx
 
 ```bash
 kubectl create deployment nginx-demo \
@@ -673,7 +727,7 @@ kubectl create deployment nginx-demo \
   -n demo-app
 ```
 
-### Step 10.3 — Expose the Deployment
+### Step 11.3 — Expose the Deployment
 
 ```bash
 kubectl expose deployment nginx-demo \
@@ -682,7 +736,7 @@ kubectl expose deployment nginx-demo \
   -n demo-app
 ```
 
-### Step 10.4 — Verify the App is Running
+### Step 11.4 — Verify the App is Running
 
 ```bash
 kubectl get pods -n demo-app
@@ -690,7 +744,7 @@ kubectl get pods -n demo-app
 
 All 3 pods should show `Running`.
 
-### Step 10.5 — Generate Log Traffic
+### Step 11.5 — Generate Log Traffic
 
 ```bash
 kubectl port-forward svc/nginx-demo 8080:80 -n demo-app &
@@ -702,15 +756,15 @@ These requests generate nginx access logs that the collector ships to Splunk Ent
 
 ---
 
-## 11. Verify Data Flow into Splunk Enterprise
+## 12. Verify Data Flow into Splunk Enterprise
 
-### Step 11.1 — Open the Splunk Enterprise Search Interface
+### Step 12.1 — Open the Splunk Enterprise Search Interface
 
 1. Navigate to `http://<your-server-ip>:8000` in your browser.
 2. Log in with your admin credentials.
 3. Click **Search & Reporting** in the left navigation bar.
 
-### Step 11.2 — Search for Kubernetes Logs
+### Step 12.2 — Search for Kubernetes Logs
 
 Set the time range to **Last 15 minutes** and run:
 
@@ -721,74 +775,102 @@ index=k8s_logs
 
 You should see log events with fields such as `host`, `source`, `sourcetype`, `namespace`, `pod`, and `container`.
 
-### Step 11.3 — Search for nginx Access Logs
+### Step 12.3 — Search for nginx Access Logs
 
 ```
 index=k8s_logs namespace=demo-app container=nginx
 | table _time, pod, log
 ```
 
-### Step 11.4 — Search for Kubernetes Events
+### Step 12.4 — Search for Kubernetes Events
 
 ```
 index=k8s_logs sourcetype=kube:events
 | head 20
 ```
 
-### Step 11.5 — Search for Metrics
+### Step 12.5 — Search for Metrics
 
 ```
 index=k8s_metrics
 | head 20
 ```
 
-> **If no data appears:** Wait 2–3 minutes. Confirm collector pods are `Running` and re-test the HEC endpoint with the `curl` command from Step 4.4.
+> **If no data appears:** Wait 2–3 minutes. Confirm collector pods are `Running` and re-test the HEC endpoint with the `curl` command from Step 7.3.
 
 ---
 
-## 12. Build Kubernetes Monitoring Dashboards
+## 13. Build Kubernetes Monitoring Dashboards
 
-### Step 12.1 — Open the Dashboard Studio
+> **Panel vs Tab:** A **panel** is a single visualization widget (chart, table, single value). A **tab** is a page divider that groups multiple panels. Each tab contains panels; panels do not contain tabs.
+
+### Step 13.1 — Create a New Classic Dashboard
+
+Classic Dashboards have a clear **Add Panel** button and are recommended for this workshop.
 
 1. In Splunk Enterprise, click **Dashboards** in the left navigation.
 2. Click **Create New Dashboard**.
 3. Title: `Kubernetes Workshop Overview`
-4. Choose **Dashboard Studio**.
+4. Select **Classic Dashboards** (not Dashboard Studio).
 5. Click **Create**.
 
-### Step 12.2 — Add a Pod Count Panel
+---
+
+### Step 13.2 — How to Add a Panel (Classic Dashboard)
+
+Once inside the dashboard editor:
+
+1. Click **+ Add Panel** at the bottom of any row, or click **Add Panel** in the top toolbar.
+2. Select **New** → choose a visualization type (Single Value, Line Chart, Table, Bar Chart).
+3. Enter your SPL search in the search box.
+4. Set the time range (e.g. Last 60 minutes).
+5. Click **Apply** to preview, then give the panel a title.
+6. Click **Save** (top right) after adding all panels.
+
+> **If using Dashboard Studio:** The Add Panel button is the **rectangle/square icon (□)** in the top toolbar. Click it to insert a panel onto the canvas. The Dropdown/Multiselect/Text menu that appears is for **input controls** (filters), not panels — press Esc to dismiss it.
+
+---
+
+### Step 13.3 — Add a Pod Count Panel
 
 - Visualization: **Single Value**
+- Title: `Total Active Pods`
 - Search:
   ```
   index=k8s_logs
   | stats dc(pod) AS "Running Pods"
   ```
-- Title: `Total Active Pods`
 
-### Step 12.3 — Add a Log Volume Over Time Panel
+---
+
+### Step 13.4 — Add a Log Volume Over Time Panel
 
 - Visualization: **Line Chart**
+- Title: `Log Volume by Namespace`
 - Search:
   ```
   index=k8s_logs
   | timechart span=1m count AS "Log Events" by namespace
   ```
-- Title: `Log Volume by Namespace`
 
-### Step 12.4 — Add a Node CPU Metrics Panel
+---
+
+### Step 13.5 — Add a Node CPU Metrics Panel
 
 - Visualization: **Line Chart**
+- Title: `Node CPU Utilization`
 - Search:
   ```
   index=k8s_metrics metric_name=k8s.node.cpu.utilization
   | timechart span=1m avg(value) AS "CPU Utilization" by k8s.node.name
   ```
-- Title: `Node CPU Utilization`
 
-### Step 12.5 — Add an Error Log Panel
+---
+
+### Step 13.6 — Add an Error Log Panel
 
 - Visualization: **Table**
+- Title: `Recent Error Logs`
 - Search:
   ```
   index=k8s_logs (log=*error* OR log=*Error* OR log=*ERROR*)
@@ -796,11 +878,13 @@ index=k8s_metrics
   | sort -_time
   | head 50
   ```
-- Title: `Recent Error Logs`
 
-### Step 12.6 — Add a Kubernetes Events Panel
+---
+
+### Step 13.7 — Add a Kubernetes Events Panel
 
 - Visualization: **Table**
+- Title: `Kubernetes Events`
 - Search:
   ```
   index=k8s_logs sourcetype=kube:events
@@ -809,17 +893,18 @@ index=k8s_metrics
   | sort -_time
   | head 30
   ```
-- Title: `Kubernetes Events`
 
-### Step 12.7 — Save the Dashboard
+---
+
+### Step 13.8 — Save the Dashboard
 
 Click **Save** (top right). The dashboard will auto-refresh as new data arrives.
 
 ---
 
-## 13. Set Up Alerts
+## 14. Set Up Alerts
 
-### Step 13.1 — Create a Pod Crash Loop Alert
+### Step 14.1 — Create a Pod Crash Loop Alert
 
 1. In **Search & Reporting**, run:
    ```
@@ -836,7 +921,7 @@ Click **Save** (top right). The dashboard will auto-refresh as new data arrives.
 5. Add a trigger action (email or **Add to Triggered Alerts**).
 6. Click **Save**.
 
-### Step 13.2 — Create a High Log Volume Alert
+### Step 14.2 — Create a High Log Volume Alert
 
 1. Run:
    ```
@@ -851,13 +936,64 @@ Click **Save** (top right). The dashboard will auto-refresh as new data arrives.
    - **Trigger Condition:** Number of Results → Greater than → 0
 4. Click **Save**.
 
-### Step 13.3 — View Triggered Alerts
+### Step 14.3 — View Triggered Alerts
 
 Go to **Activity → Triggered Alerts** in the Splunk Enterprise navigation to see any fired alerts.
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
+
+### HEC Returns `HTTP/0.9 when not allowed`
+
+**Cause:** Using `http://` against a HTTPS-only port.
+
+```bash
+# Wrong
+curl http://master:8088/services/collector/event ...
+
+# Correct — use https:// with -k
+curl -k https://master:8088/services/collector/event \
+  -H "Authorization: Splunk <YOUR-HEC-TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"event": "test", "index": "k8s_logs"}'
+```
+
+Update `values.yaml` endpoint to `https://` and run `helm upgrade`.
+
+---
+
+### KinD Cluster Creation Fails — `could not find free subnet from subnet pools`
+
+**Cause:** Podman IPv6 subnet pool exhaustion. Fix: remove Podman and use Docker CE (see [Step 5](#5-remove-podman-and-install-docker-ce)).
+
+If Podman is already removed but the error persists:
+
+```bash
+# Clean up stale networks
+podman network prune -f 2>/dev/null
+
+# Or force Docker provider explicitly
+KIND_EXPERIMENTAL_PROVIDER=docker kind create cluster --config kind-cluster.yaml
+```
+
+---
+
+### Helm Install Fails — `Duplicate value: "varlog"`
+
+**Cause:** `extraVolumes` in `values.yaml` duplicates volumes the chart already defines internally.
+
+**Fix:** Remove all `extraVolumes` and `extraVolumeMounts` sections from `values.yaml`, then reinstall:
+
+```bash
+helm uninstall splunk-otel-collector -n splunk-monitoring
+helm install splunk-otel-collector \
+  splunk-otel-collector-chart/splunk-otel-collector \
+  --namespace splunk-monitoring \
+  --values values.yaml
+```
+
+---
 
 ### Splunk Enterprise Won't Start
 
@@ -877,6 +1013,8 @@ sudo /opt/splunk/bin/splunk status
 sudo /opt/splunk/bin/splunk edit user admin -password <newpassword> -auth admin:<oldpassword>
 ```
 
+---
+
 ### Collector Pods in CrashLoopBackOff
 
 ```bash
@@ -886,30 +1024,20 @@ kubectl logs <pod-name> -n splunk-monitoring --previous
 
 Common causes:
 - **Wrong HEC token** — verify the token matches what was created in Step 4.3
-- **Wrong endpoint URL** — confirm the IP and port `8088` are reachable from within the KinD cluster
+- **Using `http://` instead of `https://`** — update endpoint in `values.yaml`
+- **Wrong bridge IP** — confirm `172.18.0.1` is the active KinD bridge (not `172.17.0.1` which is `docker0` and may be DOWN)
 - **Firewall blocking port 8088** — ensure `firewall-cmd` rules were applied (Step 3.6)
 
-To apply changes after editing the values file:
+To apply changes after editing `values.yaml`:
 
 ```bash
 helm upgrade splunk-otel-collector \
   splunk-otel-collector-chart/splunk-otel-collector \
   --namespace splunk-monitoring \
-  --values splunk-otel-values.yaml \
-  --set splunkPlatform.token=<YOUR-HEC-TOKEN>
+  --values values.yaml
 ```
 
-### HEC Endpoint Not Reachable from KinD
-
-KinD containers run in Docker's internal network. The `localhost` or `127.0.0.1` of your host is **not** automatically reachable from inside KinD pods. Use one of:
-
-```bash
-# Find your host IP reachable from Docker containers
-ip route | grep docker
-# Or use Docker bridge IP (usually 172.17.0.1)
-```
-
-Update the `endpoint` in `splunk-otel-values.yaml` to use this IP, then run `helm upgrade`.
+---
 
 ### No Data in Splunk Search
 
@@ -920,15 +1048,17 @@ Update the `endpoint` in `splunk-otel-values.yaml` to use this IP, then run `hel
      -l app=splunk-otel-collector,component=otel-collector-agent \
      --tail=100 | grep -i "error\|warn\|fail"
    ```
-3. Test HEC directly:
+3. Test HEC from host using the correct bridge IP:
    ```bash
-   curl http://<YOUR-SERVER-IP>:8088/services/collector/event \
+   curl -k https://172.18.0.1:8088/services/collector/event \
      -H "Authorization: Splunk <YOUR-HEC-TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{"event": "test", "index": "k8s_logs"}'
    ```
    Expected: `{"text":"Success","code":0}`
 4. Verify `k8s_logs` and `k8s_metrics` indexes exist under **Settings → Indexes**.
+
+---
 
 ### Helm Release Stuck
 
@@ -939,21 +1069,20 @@ kubectl get pods -n splunk-monitoring -w   # wait for termination
 helm install splunk-otel-collector \
   splunk-otel-collector-chart/splunk-otel-collector \
   --namespace splunk-monitoring \
-  --values splunk-otel-values.yaml \
-  --set splunkPlatform.token=<YOUR-HEC-TOKEN>
+  --values values.yaml
 ```
 
 ---
 
-## 15. Clean Up
+## 16. Clean Up
 
-### Step 15.1 — Uninstall the Helm Release
+### Step 16.1 — Uninstall the Helm Release
 
 ```bash
 helm uninstall splunk-otel-collector -n splunk-monitoring
 ```
 
-### Step 15.2 — Delete the KinD Cluster
+### Step 16.2 — Delete the KinD Cluster
 
 ```bash
 kind delete cluster --name splunk-workshop
@@ -966,20 +1095,20 @@ Deleting cluster "splunk-workshop" ...
 Deleted nodes: ["splunk-workshop-control-plane" "splunk-workshop-worker" "splunk-workshop-worker2"]
 ```
 
-### Step 15.3 — Verify Docker Cleanup
+### Step 16.3 — Verify Docker Cleanup
 
 ```bash
 docker ps | grep splunk-workshop
 # Should return no results
 ```
 
-### Step 15.4 — Remove Local Files (Optional)
+### Step 16.4 — Remove Local Files (Optional)
 
 ```bash
-rm kind-cluster.yaml splunk-otel-values.yaml
+rm kind-cluster.yaml values.yaml
 ```
 
-### Step 15.5 — Stop Splunk Enterprise (Optional)
+### Step 16.5 — Stop Splunk Enterprise (Optional)
 
 ```bash
 sudo /opt/splunk/bin/splunk stop
@@ -1017,13 +1146,15 @@ In this workshop you:
 
 1. Installed **Splunk Enterprise 10.4.0** on a Linux host via RPM and resolved post-install warnings
 2. Created **dedicated indexes** (`k8s_logs`, `k8s_metrics`) for Kubernetes data
-3. Enabled the **HTTP Event Collector (HEC)** and created a token for secure ingestion
-4. Created a **multi-node KinD cluster** using a config file
-5. Deployed the **Splunk OpenTelemetry Collector** as a DaemonSet using Helm, pointing it at your local Splunk Enterprise HEC endpoint
-6. Deployed a **sample nginx application** and generated log traffic
-7. Verified **data flow** using Splunk Enterprise search
-8. Built a **custom dashboard** with pod counts, log volume, CPU metrics, and events
-9. Configured **alerts** for crash loops and high log volume
+3. Enabled the **HTTP Event Collector (HEC)** on port `8088` (HTTPS) and created an ingestion token
+4. Removed **Podman** and installed **Docker CE** to avoid KinD IPv6 subnet pool errors
+5. Created a **multi-node KinD cluster** with IPv4-only networking using a config file
+6. Identified the **Docker bridge IP** (`172.18.0.1`) as the HEC target reachable from inside KinD
+7. Deployed the **Splunk OpenTelemetry Collector** as a DaemonSet using Helm with the correct `values.yaml` (no duplicate volumes)
+8. Deployed a **sample nginx application** and generated log traffic
+9. Verified **data flow** using Splunk Enterprise search
+10. Built a **custom Classic Dashboard** with pod counts, log volume, CPU metrics, and events
+11. Configured **alerts** for crash loops and high log volume
 
 ---
 
@@ -1035,3 +1166,4 @@ In this workshop you:
 - [KinD Official Documentation](https://kind.sigs.k8s.io/)
 - [Splunk Search Processing Language (SPL) Reference](https://docs.splunk.com/Documentation/Splunk/latest/SearchReference/WhatsInThisManual)
 - [OpenTelemetry Collector Documentation](https://opentelemetry.io/docs/collector/)
+- [Docker CE Installation Guide](https://docs.docker.com/engine/install/rhel/)
