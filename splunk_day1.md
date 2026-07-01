@@ -1,6 +1,12 @@
 # Signing Up for Splunk Observability Cloud (E2)
 
-Splunk Observability Cloud (sometimes referred to internally as "E2") offers two ways to get started: a **Free Edition** (ongoing access, up to 15 hosts, no credit card) and a **14-day Free Trial** (full platform, time-limited). Steps below cover the Free Edition sign-up, which is the recommended starting point.
+**Splunk Observability Cloud Free Edition** makes enterprise-grade observability a foundational part of your architecture. IT and dev teams can now build, scale, and secure their applications from day one — free for up to 15 hosts.
+
+Free Edition gives you full feature parity with the paid platform, so you can build resilient, secure, and performant applications using the same tools that power the world's most digitally resilient enterprises. Sign up now to benefit from:
+
+- **Free for up to 15 hosts:** Full access to the entire Observability Cloud platform. No upcharges or feature gates.
+- **Ongoing access:** This isn't a time-limited trial — you get industry-leading observability for as long as you need it, for up to 15 hosts.
+- **Zero procurement friction:** Start instrumenting your stack immediately. No credit card required.
 
 ## Prerequisites
 
@@ -54,20 +60,8 @@ Splunk Observability Cloud (sometimes referred to internally as "E2") offers two
 9. **Start sending data**
    From the home page, use the **Data Integrations** page to instrument your environment (OpenTelemetry Collector, sample apps, or existing infrastructure).
 
-## Alternative: 14-Day Free Trial
-
-If you prefer the guided trial experience instead (uses a sample "Hipster Shop" app or your own OpenTelemetry data):
-
-1. Go to [splunk.com/en_us/download.html](https://www.splunk.com/en_us/download.html)
-2. Create a Splunk account (or log in if you already have one)
-3. Select **Splunk Observability Cloud trial** (14 days)
-4. Follow the guided onboarding to set up prerequisites: Docker, minikube, Helm, and GNU sed
-5. Deploy the sample environment or connect your own app via OpenTelemetry
-6. Generate traffic and explore dashboards, APM, and Infrastructure Monitoring
-
 ## Notes
 
-- No credit card is required for either option.
+- No credit card is required to sign up.
 - The Free Edition does not expire but is capped at 15 monitored hosts.
-- The Trial gives full access for 14 days with no host cap, ideal for a broader proof-of-concept.
-- For team/enterprise access beyond the free tiers, contact Splunk Sales.
+- For team/enterprise access beyond the free tier, contact Splunk Sales.
