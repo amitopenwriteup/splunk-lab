@@ -99,6 +99,12 @@ cd "C:\Apache24\bin"
 .\httpd.exe -k install
 ```
 
+> You may see a warning here: `AH00558: httpd.exe: Could not reliably determine the server's fully qualified domain name...`. This is expected — the service still installs successfully — but set `ServerName` explicitly to silence it:
+
+```powershell
+(Get-Content "C:\Apache24\conf\httpd.conf") -replace '#ServerName www.example.com:80', 'ServerName localhost:80' | Set-Content "C:\Apache24\conf\httpd.conf"
+```
+
 Start the service:
 
 ```powershell
