@@ -39,24 +39,27 @@ Install Apache on Windows if it isn't already present.
 
 ### Steps
 
-Apache Lounge's download URLs change with every release, so resolve the current link dynamically rather than hardcoding a version:
+Apache Lounge's download URLs change with every release, and the site issues a `308 Permanent Redirect` that `Invoke-WebRequest` in Windows PowerShell 5.1 does not follow automatically. Use `curl.exe` (built into Windows 10/11) instead, which follows redirects correctly with `-L`.
+
+Force TLS 1.2 for this session first (avoids handshake failures on older Windows builds):
 
 ```powershell
-$page = Invoke-WebRequest -Uri "https://www.apachelounge.com/download/" -UseBasicParsing
-$link = ($page.Links | Where-Object { $_.href -match "VS17/binaries/httpd.*win64.*\.zip$" } | Select-Object -First 1).href
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+```
+
+Fetch the download page and resolve the current `.zip` link:
+
+```powershell
+curl.exe -L -s "https://www.apachelounge.com/download/" -o "$env:TEMP\apachelounge.html"
+$html = Get-Content "$env:TEMP\apachelounge.html" -Raw
+$link = [regex]::Match($html, 'href="([^"]*VS17/binaries/httpd[^"]*win64[^"]*\.zip)"').Groups[1].Value
 $link
 ```
 
-Confirm `$link` printed a real `.zip` URL, then download it:
+Confirm `$link` printed a real `.zip` URL, then download it (also via `curl.exe -L` so any further redirects are followed):
 
 ```powershell
-Invoke-WebRequest -Uri $link -OutFile "$env:TEMP\httpd.zip" -MaximumRedirection 5 -UseBasicParsing
-```
-
-**If the download still fails or redirects** (some sites block PowerShell's default user agent), add one explicitly:
-
-```powershell
-Invoke-WebRequest -Uri $link -OutFile "$env:TEMP\httpd.zip" -UseBasicParsing -UserAgent "Mozilla/5.0"
+curl.exe -L -s $link -o "$env:TEMP\httpd.zip"
 ```
 
 **Verify the file actually downloaded before extracting** — this avoids a confusing `Expand-Archive` error if the download silently failed:
