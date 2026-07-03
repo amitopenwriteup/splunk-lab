@@ -63,7 +63,16 @@ If `$link` is still empty, print all candidate links to see what's actually on t
 $matches | ForEach-Object { $_.Groups[1].Value }
 ```
 
-Confirm `$link` printed a real `.zip` URL, then download it (also via `curl.exe -L` so any further redirects are followed):
+The extracted link is often **relative** (e.g. `/download/VS18/binaries/httpd-...zip` with no domain) — `curl.exe` can't resolve that on its own, so prepend the base URL if needed:
+
+```powershell
+if ($link -notmatch '^https?://') {
+    $link = "https://www.apachelounge.com" + $link
+}
+$link
+```
+
+Confirm `$link` now prints a **full** URL starting with `https://`, then download it (also via `curl.exe -L` so any further redirects are followed):
 
 ```powershell
 curl.exe -L -s $link -o "$env:TEMP\httpd.zip"
