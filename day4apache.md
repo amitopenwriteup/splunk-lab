@@ -47,13 +47,20 @@ Force TLS 1.2 for this session first (avoids handshake failures on older Windows
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 ```
 
-Fetch the download page and resolve the current `.zip` link:
+Fetch the download page and resolve the current `.zip` link — case-insensitive and not pinned to a specific VS version, since Apache Lounge periodically moves the newest build to a new Visual Studio toolset (VS17, VS18, etc.) and capitalizes "Win64" inconsistently:
 
 ```powershell
 curl.exe -L -s "https://www.apachelounge.com/download/" -o "$env:TEMP\apachelounge.html"
 $html = Get-Content "$env:TEMP\apachelounge.html" -Raw
-$link = [regex]::Match($html, 'href="([^"]*VS17/binaries/httpd[^"]*win64[^"]*\.zip)"').Groups[1].Value
+$matches = [regex]::Matches($html, 'href="([^"]*binaries/httpd-[^"]*[Ww]in64[^"]*\.zip)"', 'IgnoreCase')
+$link = $matches[0].Groups[1].Value
 $link
+```
+
+If `$link` is still empty, print all candidate links to see what's actually on the page:
+
+```powershell
+$matches | ForEach-Object { $_.Groups[1].Value }
 ```
 
 Confirm `$link` printed a real `.zip` URL, then download it (also via `curl.exe -L` so any further redirects are followed):
