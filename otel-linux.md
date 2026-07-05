@@ -136,7 +136,8 @@ Locate and review the collector's config files.
 ```bash
 ls -la /etc/otel/collector/
 sudo cat /etc/otel/collector/agent_config.yaml
-sudo cat /etc/systemd/system/splunk-otel-collector.service
+ sudo cat /etc/systemd/system/splunk-otel-collector.service.d/service-owner.conf
+
 ```
 
 ### Checkpoint questions
