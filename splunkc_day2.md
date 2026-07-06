@@ -65,12 +65,14 @@ Install the Splunk OTel Collector in agent mode.
 ### Steps
 
 ```bash
-curl -sSL https://dl.signalfx.com/splunk-otel-collector.sh > /tmp/splunk-otel-collector.sh
+curl -sSL https://dl.observability.splunkcloud.com/splunk-otel-collector.sh > /tmp/splunk-otel-collector.sh
 sudo sh /tmp/splunk-otel-collector.sh \
   --realm $SPLUNK_REALM \
-  -- $SPLUNK_ACCESS_TOKEN \
-  --mode agent
+  --mode agent \
+  -- $SPLUNK_ACCESS_TOKEN
 ```
+
+> **Note:** All flags (`--realm`, `--mode`, etc.) must come **before** the `--`. Everything after `--` is treated as a positional argument — the access token. `--mode agent` is also the script's default, so you can omit it if you prefer; it's included here for clarity.
 
 ### Validate
 
