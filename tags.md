@@ -1,98 +1,53 @@
-# Lab Part 2 (Exercise 7): Tagging the Host in Splunk Observability Cloud
+# Lab Part 2 (Exercise 7): Tagging Hosts with `deployment.environment` and Custom Attributes
 
-**Objective:** Add custom tags/dimensions (e.g. `team`, `env`, `role`) to the host your Splunk OTel Collector is reporting from, so you can filter and group it in Infrastructure views, dashboards, and detectors.
+**Objective:** Use the OpenTelemetry `deployment.environment` attribute (not a generic "environment" tag) plus custom resource attributes to tag your host, using the Collector's **Resource processor** — the method Splunk's official docs recommend.
 
-**Estimated time:** 10–15 minutes
+**Estimated time:** 15 minutes
 
-**Prerequisite:** Completed `lab-otel-collector-windows-part1.md` — collector installed as a Windows service and host metrics already visible in **Infrastructure → Hosts**.
+**Prerequisite:** Completed `lab-otel-collector-windows-part1.md` — collector installed and running as a Windows service, host metrics visible in **Infrastructure → Hosts**.
 
-**Environment:** Same Windows 10 machine, elevated PowerShell, `$SplunkRealm` / `$SplunkAccessToken` still set (re-set them if you opened a new session)
-
----
-
-## Two ways to tag a host
-
-| Method | When to use it |
-|---|---|
-| **A. Reinstall with tags** | Simplest — good if you're okay re-running the installer |
-| **B. Edit the config directly** | No reinstall needed; better once you're past the lab and managing config in place |
-
-This lab walks through both so you can see how they relate — Method A is really just a shortcut that writes the same thing Method B does by hand.
+**Reference:** [Use tags or attributes in OpenTelemetry](https://help.splunk.com/en/splunk-observability-cloud/manage-data/splunk-distribution-of-the-opentelemetry-collector/get-started-with-the-splunk-distribution-of-the-opentelemetry-collector/get-started-understand-and-use-the-collector/use-tags-or-attributes-in-opentelemetry) and [Resource processor](https://help.splunk.com/en/splunk-observability-cloud/manage-data/splunk-distribution-of-the-opentelemetry-collector/get-started-with-the-splunk-distribution-of-the-opentelemetry-collector/collector-components/processors/resource-processor)
 
 ---
 
-## Method A — Set tags via the installer
+## Why `deployment.environment` specifically
 
-The install script accepts a `-tags` parameter (comma-separated `key:value` pairs) alongside `-deployment_environment`, which itself is just a shortcut for the `deployment.environment` tag.
-
-### Step 1 — Re-run the installer with tags
-
-```powershell
-& "$env:TEMP\splunk-otel-collector.ps1" `
-  -access_token $SplunkAccessToken `
-  -realm $SplunkRealm `
-  -mode "agent" `
-  -deployment_environment "lab" `
-  -tags "team:web,role:otel-lab-vm"
-```
-
-The installer detects the existing service, updates the config in place, and restarts it — you don't lose your Exercise 1–3 setup.
-
-### Step 2 — Confirm the service restarted
-
-```powershell
-Get-Service splunk-otel-collector
-```
-
-**Expected result:** `Status` is `Running` (it will briefly show `Stopped`/`Starting` during the reinstall).
-
-Skip to **Validate in the UI** below, or continue to Method B to see what changed under the hood.
+`deployment.environment` is a standardized OpenTelemetry attribute (not a free-form tag). Splunk Observability Cloud uses this exact name to power **Related Content** links between Infrastructure and APM — a custom tag like `environment` or `env` won't get that linking.
 
 ---
 
-## Method B — Edit `agent_config.yaml` directly
-
-### Step 1 — Open the config
+## Step 1 — Open the agent config
 
 ```powershell
 notepad "C:\ProgramData\Splunk\OpenTelemetry Collector\agent_config.yaml"
 ```
 
-### Step 2 — Find the `resource` processor
+## Step 2 — Add a `resource` processor
 
-The default config already includes a `resourcedetection` processor (auto-detects things like hostname and OS). Tags you set manually go in a `resource` processor, which adds or overrides attributes. Look for a block similar to:
+Find the `processors:` section. Add (or extend) a `resource` block. Each entry needs a `key`, a `value`, and an `action`:
 
 ```yaml
 processors:
   resourcedetection:
     detectors: [system]
     override: true
+
   resource:
     attributes:
       - key: deployment.environment
-        value: "lab"
-        action: upsert
-```
-
-If `resource` isn't already there, add it under `processors:`, adding one `- key / value / action: upsert` entry per tag:
-
-```yaml
-  resource:
-    attributes:
-      - key: deployment.environment
-        value: "lab"
+        value: "staging"
         action: upsert
       - key: team
         value: "web"
         action: upsert
-      - key: role
-        value: "otel-lab-vm"
-        action: upsert
 ```
 
-### Step 3 — Wire the processor into the metrics pipeline
+- `action: upsert` adds the attribute if it's missing, or overwrites it if `resourcedetection` (or anything else) already set a value for that key.
+- Other available actions include `insert` (only if the key doesn't already exist) and `delete` (remove a key) — `upsert` is the right default when you want your value to win.
 
-Still in the same file, find the `service:` → `pipelines:` → `metrics:` section and make sure `resource` is listed in `processors:`, after `resourcedetection`:
+## Step 3 — Wire `resource` into the pipelines
+
+Still in the same file, under `service: → pipelines:`, make sure `resource` is listed in the `processors:` list for the pipelines you want tagged — typically both `metrics` and `traces`:
 
 ```yaml
 service:
@@ -101,11 +56,16 @@ service:
       receivers: [hostmetrics, windowsperfcounters]
       processors: [resourcedetection, resource, batch]
       exporters: [signalfx]
+
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, batch]
+      exporters: [sapm]
 ```
 
-> Order matters here: `resourcedetection` runs first and populates defaults, `resource` runs second and can overwrite them with your values (that's what `action: upsert` does).
+> Order matters: `resourcedetection` runs first and fills in defaults (like hostname), `resource` runs second and applies your `upsert`/`insert`/`delete` actions on top.
 
-### Step 4 — Save and restart the service
+## Step 4 — Save and restart the service
 
 ```powershell
 Restart-Service splunk-otel-collector
@@ -114,26 +74,22 @@ Get-Service splunk-otel-collector
 
 **Expected result:** `Status` shows `Running`.
 
-### Step 5 — Watch for config errors
+## Step 5 — Check for config errors
 
 ```powershell
 Get-Content "C:\ProgramData\Splunk\OpenTelemetry Collector\logs\otelcol.log" -Tail 30
 ```
 
-A bad YAML indent here is the most common mistake — if the service fails to come back up, this log will show a parsing error pointing at the line number.
+A YAML indentation mistake is the most common failure here — the log will point at the offending line if the service won't come back up.
 
 ---
 
 ## Validate in the UI
 
-1. In Splunk Observability Cloud, go to **Infrastructure → Hosts**.
-2. Click into your host (search by hostname, same as Exercise 3).
-3. Open the **Metadata** or **Properties** panel — you should see `team: web`, `role: otel-lab-vm`, and `deployment.environment: lab` listed as dimensions.
-4. Go to any chart or the host list and use the filter bar to search `team:web` — your host should appear.
-
-### Checkpoint questions
-- What's the difference between what `resourcedetection` sets automatically and what `resource` lets you override?
-- Why does `action: upsert` matter here instead of `insert`? (Hint: what would happen if `resourcedetection` already set a value for that same key?)
+1. Go to **Infrastructure → Hosts** in Splunk Observability Cloud and open your host.
+2. Check the **Metadata**/**Properties** panel for `deployment.environment: staging` and `team: web`.
+3. Go to **APM** (if you completed the traces exercise) and confirm a service on this host now shows a **Related Content** link back to its Infrastructure host — this only appears when `deployment.environment` is set correctly.
+4. Use the filter bar on any chart or host list and search `deployment.environment:staging` to confirm the host is discoverable.
 
 ---
 
@@ -141,9 +97,8 @@ A bad YAML indent here is the most common mistake — if the service fails to co
 
 | Component | Status |
 |---|---|
-| Tags applied via installer or config edit | ✅ |
-| Collector service running after change | ✅ |
-| No errors in `otelcol.log` | ✅ |
-| Custom tags visible on host in Infrastructure → Hosts | ✅ |
-
+| `resource` processor added with `deployment.environment` (upsert) | ✅ |
+| `resource` processor included in metrics/traces pipelines | ✅ |
+| Collector restarted with no errors in `otelcol.log` | ✅ |
+| `deployment.environment` and custom attributes visible on host in UI | ✅ |
 **Next:** Continue with Exercise 8 (alerting) in `lab-otel-collector-windows-part2.md`.
