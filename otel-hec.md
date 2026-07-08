@@ -86,10 +86,10 @@ Splunk Cloud environments sometimes front HEC on port `443` instead of `8088` �
 
 | Item | Status |
 |---|---|
-| Index created | ✅ |
-| HEC globally enabled | ✅ |
-| HEC token created and copied | ✅ |
-| HEC endpoint and port confirmed | ✅ |
+| Index created |  |
+| HEC globally enabled |  |
+| HEC token created and copied | |
+| HEC endpoint and port confirmed |  |
 
 ---
 
@@ -236,28 +236,7 @@ sudo vi /etc/otel/collector/agent_config.yaml
 
 Change `sourcetype: "otel"` to `sourcetype: "_json"` (see the sourcetype note below), and add an `index:` line since one isn't set by default:
 
-```yaml
-splunk_hec:
-  token: "${SPLUNK_HEC_TOKEN}"
-  endpoint: "${SPLUNK_HEC_URL}"
-  source: "otel"
-  sourcetype: "_json"
-  index: "main"
-  profiling_data_enabled: false
-```
 
-> `sourcetype: "otel"` will fail with a "sourcetype not found" error unless you've manually created a custom sourcetype named `otel` in Splunk. `_json` is built in and matches the JSON-structured events the Splunk HEC Exporter sends, so it works out of the box.
-
-### Step 3: Verify the TLS certificate before disabling verification
-
-Before adding `insecure_skip_verify`, check whether your Splunk endpoint's certificate is actually valid — skipping verification unnecessarily weakens security:
-
-```bash
-openssl s_client -connect <splunk-host>:8088 -servername <splunk-host> </dev/null 2>/dev/null | openssl x509 -noout -dates -issuer
-```
-
-- **Valid, trusted certificate** (no errors, dates are current) → leave TLS verification on; don't add `insecure_skip_verify`.
-- **Self-signed cert / hostname mismatch / lab-only cert** → add `tls: insecure_skip_verify: true` under the `splunk_hec:` block, for this test environment only:
 
 ```yaml
 splunk_hec:
