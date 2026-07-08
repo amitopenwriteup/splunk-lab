@@ -67,7 +67,7 @@ If you're using Splunk Cloud and don't yet have an index or HEC token, complete 
 3. Click **Next**.
 4. **Input Settings**:
    - **Source name override**: leave blank (the collector sets `source` in its config)
-   - **Sourcetype**: `otel` (matches the exporter config used later)
+   - **Sourcetype**: `_json` (the Splunk HEC Exporter sends structured JSON events; `_json` is a built-in sourcetype Splunk always recognizes, so you avoid a "sourcetype not found" issue)
    - **Index**: select the index you created in Step 1 (`workshop` or `main`) and set it as the default
 5. Click **Review**, then **Submit**.
 6. Copy the generated **Token Value** immediately — you'll use it as `<YOUR_HEC_TOKEN>` in Lab 5.
@@ -172,6 +172,8 @@ Edit the collector configuration:
 sudo vi /etc/otel/collector/agent_config.yaml
 ```
 
+> The default Splunk-shipped config already has entries under `receivers:` (e.g. `nop:`) and `processors:` (e.g. `batch:` with `metadata_keys: - X-SF-Token`). Don't replace these — add your new block alongside them under the existing `receivers:` key.
+
 Add:
 
 ```yaml
@@ -182,42 +184,55 @@ receivers:
     start_at: beginning
 ```
 
-This tells the collector to monitor the log file from the beginning.
-
 ---
 
-## Lab 4 — Configure the Batch Processor
+## Lab 4 — Confirm the Batch Processor
+
+Your config likely already has a `batch:` processor under `processors:`, similar to:
 
 ```yaml
 processors:
   batch:
+    metadata_keys:
+      - X-SF-Token
 ```
 
-The batch processor groups multiple log records before sending them, reducing the number of HTTP requests and improving performance.
+You don't need to add a second `batch:` block — this existing one already groups log records before sending them, reducing HTTP requests. Just leave it as-is; you'll reference `batch` by name in the pipeline in Lab 6.
 
 ---
 
 ## Lab 5 — Configure the Splunk HEC Exporter
 
-Add:
+Your config already has a `splunk_hec:` exporter defined (using `${SPLUNK_HEC_TOKEN}` / `${SPLUNK_HEC_URL}` environment variables, plus a separate `splunk_hec/profiling` block). Reuse it rather than adding a second `splunk_hec:` key (YAML doesn't allow duplicates).
+
+Set the environment variables it references:
+
+```bash
+export SPLUNK_HEC_TOKEN="<YOUR_HEC_TOKEN>"
+export SPLUNK_HEC_URL="https://<splunk-host>:8088/services/collector"
+```
+
+Then update the existing block: change `sourcetype: "otel"` to `sourcetype: "_json"` (see the sourcetype note below), and add an `index:` line since one isn't set by default:
 
 ```yaml
-exporters:
-  splunk_hec:
-    token: "<YOUR_HEC_TOKEN>"
-    endpoint: "https://<splunk-host>:8088/services/collector"
-    source: "linux-workshop"
-    sourcetype: "otel"
-    index: "main"
-    tls:
-      insecure_skip_verify: true
+splunk_hec:
+  token: "${SPLUNK_HEC_TOKEN}"
+  endpoint: "${SPLUNK_HEC_URL}"
+  source: "otel"
+  sourcetype: "_json"
+  index: "main"
+  profiling_data_enabled: false
 ```
+
+> `sourcetype: "otel"` will fail with a "sourcetype not found" error unless you've manually created a custom sourcetype named `otel` in Splunk. `_json` is built in and matches the JSON-structured events the Splunk HEC Exporter sends, so it works out of the box.
 
 Replace `<YOUR_HEC_TOKEN>` and `<splunk-host>` with your environment values.
 
 ---
 
 ## Lab 6 — Configure the Pipeline
+
+Add a `logs` pipeline under `service: → pipelines:`. If `service:` and `pipelines:` already exist in your config (they will, for the default agent config), just add the `logs:` block alongside whatever pipelines are already there — don't delete the existing ones:
 
 ```yaml
 service:
@@ -297,7 +312,7 @@ index=main source=linux-workshop
 or
 
 ```spl
-index=main sourcetype=otel
+index=main sourcetype=_json
 ```
 
 You should see:
@@ -386,6 +401,7 @@ environment=workshop
 | Log file not read | Confirm the path exists and the collector has read permissions. |
 | TLS errors | Verify certificates or temporarily use `insecure_skip_verify: true` in a test environment. |
 | HTTP 401 | The HEC token may be invalid or lack permission for the target index. |
+| "Sourcetype not found" / events land under wrong sourcetype | Use a built-in sourcetype like `_json` instead of a custom name (e.g. `otel`) that hasn't been created in Splunk, or create the custom sourcetype first under **Settings → Source types**. |
 
 ---
 
