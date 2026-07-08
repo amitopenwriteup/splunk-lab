@@ -205,14 +205,36 @@ You don't need to add a second `batch:` block — this existing one already grou
 
 Your config already has a `splunk_hec:` exporter defined (using `${SPLUNK_HEC_TOKEN}` / `${SPLUNK_HEC_URL}` environment variables, plus a separate `splunk_hec/profiling` block). Reuse it rather than adding a second `splunk_hec:` key (YAML doesn't allow duplicates).
 
-Set the environment variables it references:
+### Step 1: Set the HEC token and URL in the conf file
+
+The systemd service reads its environment from `/etc/otel/collector/splunk-otel-collector.conf` — **not** from `export` commands in your shell. Edit that file directly:
 
 ```bash
-export SPLUNK_HEC_TOKEN="<YOUR_HEC_TOKEN>"
-export SPLUNK_HEC_URL="https://<splunk-host>:8088/services/collector"
+sudo vi /etc/otel/collector/splunk-otel-collector.conf
 ```
 
-Then update the existing block: change `sourcetype: "otel"` to `sourcetype: "_json"` (see the sourcetype note below), and add an `index:` line since one isn't set by default:
+Set (or update) these two lines:
+
+```bash
+SPLUNK_HEC_TOKEN=<YOUR_HEC_TOKEN>
+SPLUNK_HEC_URL=https://<splunk-host>:8088/services/collector
+```
+
+Save the file, then reload systemd so the new values are picked up on next restart:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+> Don't leave a stray `SPLUNK_HEC_URL=https://ingest.<realm>.observability.splunkcloud.com/v1/log` line in this file from the default install — that's a Splunk Observability Cloud path, not a HEC path, and will cause `404 Not Found` errors.
+
+### Step 2: Update the exporter block in `agent_config.yaml`
+
+```bash
+sudo vi /etc/otel/collector/agent_config.yaml
+```
+
+Change `sourcetype: "otel"` to `sourcetype: "_json"` (see the sourcetype note below), and add an `index:` line since one isn't set by default:
 
 ```yaml
 splunk_hec:
@@ -226,7 +248,37 @@ splunk_hec:
 
 > `sourcetype: "otel"` will fail with a "sourcetype not found" error unless you've manually created a custom sourcetype named `otel` in Splunk. `_json` is built in and matches the JSON-structured events the Splunk HEC Exporter sends, so it works out of the box.
 
-Replace `<YOUR_HEC_TOKEN>` and `<splunk-host>` with your environment values.
+### Step 3: Verify the TLS certificate before disabling verification
+
+Before adding `insecure_skip_verify`, check whether your Splunk endpoint's certificate is actually valid — skipping verification unnecessarily weakens security:
+
+```bash
+openssl s_client -connect <splunk-host>:8088 -servername <splunk-host> </dev/null 2>/dev/null | openssl x509 -noout -dates -issuer
+```
+
+- **Valid, trusted certificate** (no errors, dates are current) → leave TLS verification on; don't add `insecure_skip_verify`.
+- **Self-signed cert / hostname mismatch / lab-only cert** → add `tls: insecure_skip_verify: true` under the `splunk_hec:` block, for this test environment only:
+
+```yaml
+splunk_hec:
+  token: "${SPLUNK_HEC_TOKEN}"
+  endpoint: "${SPLUNK_HEC_URL}"
+  source: "otel"
+  sourcetype: "_json"
+  index: "main"
+  profiling_data_enabled: false
+  tls:
+    insecure_skip_verify: true  # only for testing/self-signed certs — remove for production
+```
+
+### Step 4: Restart and confirm
+
+```bash
+sudo systemctl restart splunk-otel-collector
+sudo journalctl -u splunk-otel-collector -f
+```
+
+Confirm the `HTTP 404`/TLS errors stop appearing in the logs.
 
 ---
 
@@ -399,9 +451,10 @@ environment=workshop
 | No logs in Splunk | Verify the HEC endpoint, token, and index. |
 | Collector won't start | Validate the YAML syntax and inspect `journalctl` output. |
 | Log file not read | Confirm the path exists and the collector has read permissions. |
-| TLS errors | Verify certificates or temporarily use `insecure_skip_verify: true` in a test environment. |
+| TLS errors | Run `openssl s_client -connect <splunk-host>:8088 -servername <splunk-host>` to check the certificate first. Only add `insecure_skip_verify: true` (Lab 5, Step 3) for self-signed/test certs — never as a first fix. |
 | HTTP 401 | The HEC token may be invalid or lack permission for the target index. |
 | "Sourcetype not found" / events land under wrong sourcetype | Use a built-in sourcetype like `_json` instead of a custom name (e.g. `otel`) that hasn't been created in Splunk, or create the custom sourcetype first under **Settings → Source types**. |
+| `HTTP "/v1/log" 404 Not Found` in `otelcol.log` | `SPLUNK_HEC_URL` is pointed at a Splunk Observability Cloud ingest path, not a HEC path. **Check `/etc/otel/collector/splunk-otel-collector.conf`** — that's what the systemd service actually reads at startup, so an `export SPLUNK_HEC_URL=...` in your shell won't fix it. Set `SPLUNK_HEC_URL=https://<splunk-host>:8088/services/collector` in that file, then `sudo systemctl daemon-reload && sudo systemctl restart splunk-otel-collector`. |
 
 ---
 
