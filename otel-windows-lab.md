@@ -100,15 +100,6 @@ Invoke-WebRequest -Uri "https://dl.signalfx.com/splunk-otel-collector.ps1" -OutF
   -mode "agent"
 ```
 
-**Optional — set the deployment environment tag at install time** (otherwise the host shows as `environment: unknown` until tagged manually in Exercise 8 of Part 2):
-
-```powershell
-& "$env:TEMP\splunk-otel-collector.ps1" `
-  -access_token $SplunkAccessToken `
-  -realm $SplunkRealm `
-  -mode "agent" `
-  -deployment_environment "lab"
-```
 
 You'll see output like:
 
@@ -137,9 +128,9 @@ Locate and review the collector's config files.
 ### Steps
 
 ```powershell
-Get-ChildItem "C:\Program Files\Splunk\OpenTelemetry Collector\"
-Get-Content "C:\Program Files\Splunk\OpenTelemetry Collector\agent_config.yaml"
-Get-Content "C:\Program Files\Splunk\OpenTelemetry Collector\splunk-otel-collector.conf"
+Get-ChildItem "C:\ProgramData\Splunk\OpenTelemetry Collector\"
+Get-Content "C:\ProgramData\Splunk\OpenTelemetry Collector\agent_config.yaml"
+Get-Content "C:\ProgramData\Splunk\OpenTelemetry Collector\splunk-otel-collector.conf"
 ```
 
 ### Checkpoint questions
