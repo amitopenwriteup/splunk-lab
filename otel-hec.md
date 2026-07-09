@@ -372,7 +372,7 @@ echo "Retry Test" | sudo tee -a /var/log/workshop/app.log
 Observe the collector logs:
 
 ```bash
-sudo journalctl -u splunk-otel-collector -f
+sudo journalctl -u splunk-otel-collector -f |grep -i filelog
 ```
 
 You should see retry attempts if `retry_on_failure` is enabled.
