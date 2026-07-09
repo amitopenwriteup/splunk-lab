@@ -284,7 +284,10 @@ service:
 Before restarting the service:
 
 ```bash
-sudo otelcol validate --config=/etc/otel/collector/agent_config.yaml
+set -a
+source /etc/otel/collector/splunk-otel-collector.conf
+set +a
+sudo -E otelcol validate --config=/etc/otel/collector/agent_config.yaml
 ```
 
 If your installation doesn't include the `validate` command, restart the service and inspect the logs for configuration errors instead.
