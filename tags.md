@@ -1,4 +1,4 @@
-# Lab Part 2 (Exercise 7): Tagging Hosts with `deployment.environment` and Custom Attributes
+# Lab : Tagging Hosts with `deployment.environment` and Custom Attributes
 
 **Objective:** Use the OpenTelemetry `deployment.environment` attribute (not a generic "environment" tag) plus custom resource attributes to tag your host, using the Collector's **Resource processor** — the method Splunk's official docs recommend.
 
