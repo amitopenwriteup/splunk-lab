@@ -1,4 +1,4 @@
-# Module 2 Lab Workshop
+# Module 
 ## The Kubernetes Integration
 
 **Estimated time:** 60–70 minutes
