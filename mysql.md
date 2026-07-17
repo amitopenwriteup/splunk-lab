@@ -320,12 +320,12 @@ sudo systemctl status splunk-otel-collector
    - `mysql.threads`
    - `mysql.operations`
    - `mysql.buffer_pool.usage`
-   - `mysql.slow_queries`
+  
 
 ### 6.2 Create a detector (alert)
 
 1. **Detectors → New Detector**
-2. Choose metric `mysql.slow_queries` (or `Threads_connected`)
+2. Choose metric  `Threads_connected`)
 3. Set a static threshold rule, e.g., alert when slow queries rate > 5 per minute over a 5-minute window
 4. Add a notification target (email, Slack, PagerDuty, etc.)
 5. Save and activate
