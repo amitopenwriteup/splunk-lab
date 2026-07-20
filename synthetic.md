@@ -1,235 +1,115 @@
-# Splunk Observability — Synthetic Testing Guide (Apache Tomcat / Rocky Linux)
+# Synthetic Testing Lab — Splunk Observability Cloud
 
-> **Prerequisites:** Tomcat is running on port `8080` and reachable at a URL your Splunk Synthetics locations can hit (use a public URL or a tunnel such as ngrok if the host is private). You have a Splunk Observability Cloud **API access token** and know your **realm**. If you want APM-linked synthetic runs, the `Server-Timing` response header should already be enabled on the backend (`SPLUNK_TRACE_RESPONSE_HEADER_ENABLED=true`).
-
-**Estimated time:** 20–30 minutes
-
----
-
-## Overview
-
-| Section | What You'll Do |
-|---------|-----------------|
-| **Section 1** | Create a Synthetic Browser Test (UI + API) |
-| **Section 2** | View Synthetic Browser Test results |
-| **Section 3** | Create Synthetic API Tests (uptime checks) |
-| **Section 4** | Clean up synthetic tests |
+**Time:** ~30 minutes
+**Goal:** Create one browser test and one API test to monitor a website.
 
 ---
 
-## Section 1 — Synthetic Browser Tests
+## What You Need
 
-### 1.1 Create a Browser Test via UI
+- A Splunk Observability Cloud account
+- An **API access token** (Settings → Access Tokens)
+- Your **realm** (e.g. `us1`, `eu0`)
+- A website URL to test (must be publicly reachable)
 
-1. Navigate to **Synthetics → Create Test → Browser Test**
-2. Configure:
+---
+
+## Step 1 — Create a Browser Test
+
+1. Log in to Splunk Observability Cloud
+2. Go to **Synthetics → Create Test → Browser Test**
+3. Fill in:
 
 | Field | Value |
 |-------|-------|
-| **Test Name** | `Tomcat Lab App — Homepage Journey` |
-| **URL** | `http://<host>:8080/` *(use a publicly reachable URL, or a tunnel such as ngrok if the host is private)* |
-| **Locations** | Pick 2–3 locations (e.g. `us-east-1`, `eu-west-1`) |
-| **Frequency** | Every 5 minutes |
+| Test Name | `My First Browser Test` |
+| Locations | Pick 1–2 (e.g. `us-east-1`) |
+| Frequency | Every 5 minutes |
 
-3. Add steps appropriate to your page:
+> **Note — Where's the URL field?**
+> There isn't a separate URL box on this screen. The URL is set inside your first **step**:
+> 1. Under **Steps**, click **"Edit steps or synthetic transactions"**
+> 2. Add a step → choose **Navigate / Go to URL**
+> 3. Enter your website address (e.g. `https://your-website.com`)
+> 4. Save the step
+
+4. Add one simple step:
 
 ```
 Step 1 — Navigate
   Action: go_to
-  URL: http://<host>:8080/
-
-Step 2 — Wait for page
-  Action: wait_for_element
-  Selector: body
-
-Step 3 — Assert RUM bundle loaded
-  Action: assert_element
-  Selector: script[src="/splunk-rum-bundle.js"]
-  Condition: is_present
+  URL: https://your-website.com
 ```
 
-4. Click **Save & Run**.
+5. Click **Save & Run**
 
-### 1.2 Create a Browser Test via API (optional)
-
-```bash
-curl -X POST "https://api.<YOUR_REALM>.signalfx.com/v2/synthetics/tests/browser" \
-  -H "Content-Type: application/json" \
-  -H "X-SF-TOKEN: <YOUR_TOKEN>" \
-  -d '{
-    "name": "Tomcat Lab App — Homepage Journey",
-    "frequency": 5,
-    "locations": ["aws-us-east-1", "aws-eu-west-1"],
-    "active": true,
-    "url": "http://<host>:8080/",
-    "steps": [
-      { "name": "Go to homepage", "type": "go_to_url", "url": "http://<host>:8080/" },
-      { "name": "Assert RUM bundle present", "type": "assert_element_present", "selector": "script[src=\"/splunk-rum-bundle.js\"]" }
-    ]
-  }'
-```
+✅ **Result:** Splunk will visit your site every 5 minutes and record load time, screenshots, and any errors.
 
 ---
 
-## Section 2 — View Synthetic Browser Test Results
+## Step 2 — Create an API (Uptime) Test
 
-1. **Synthetics → Tests** → click your test name
-2. Check the **Waterfall chart** for the request to `/`
-3. If the backend `Server-Timing` header is enabled, this run's requests should carry an **APM link** — click through to confirm you land on the correct backend trace
+1. Go to **Synthetics → Create Test → API Test**
+2. Fill in:
+
+| Field | Value |
+|-------|-------|
+| Test Name | `My First API Test` |
+| URL | `https://your-website.com` |
+| Method | `GET` |
+| Locations | Pick 1 |
+| Frequency | Every 1 minute |
+
+3. Add an assertion:
+
+```
+Status code is 200
+```
+
+4. Click **Save & Run**
+
+✅ **Result:** Splunk will check every minute if your site is up and returns a `200` status.
 
 ---
 
-## Section 3 — Synthetic API Tests (Uptime Checks)
+## Step 3 — View Results
 
-### 3.1 Homepage Availability Check
-
-```bash
-curl -X POST "https://api.<YOUR_REALM>.signalfx.com/v2/synthetics/tests/api" \
-  -H "Content-Type: application/json" \
-  -H "X-SF-TOKEN: <YOUR_TOKEN>" \
-  -d '{
-    "name": "Tomcat Host — Homepage Health Check",
-    "frequency": 1,
-    "locations": ["aws-us-east-1"],
-    "active": true,
-    "requests": [
-      {
-        "name": "GET /",
-        "request": {
-          "url": "http://<host>:8080/",
-          "method": "GET"
-        },
-        "assertions": [
-          { "type": "STATUS", "comparator": "is", "expected": "200" },
-          { "type": "RESPONSE_TIME", "comparator": "less_than", "expected": "2000" }
-        ]
-      }
-    ]
-  }'
-```
-
-### 3.2 RUM Bundle Availability Check
-
-```bash
-curl -X POST "https://api.<YOUR_REALM>.signalfx.com/v2/synthetics/tests/api" \
-  -H "Content-Type: application/json" \
-  -H "X-SF-TOKEN: <YOUR_TOKEN>" \
-  -d '{
-    "name": "Tomcat Host — RUM Bundle Availability",
-    "frequency": 5,
-    "locations": ["aws-us-east-1", "aws-ap-southeast-1"],
-    "active": true,
-    "requests": [
-      {
-        "name": "GET /splunk-rum-bundle.js",
-        "request": {
-          "url": "http://<host>:8080/splunk-rum-bundle.js",
-          "method": "GET"
-        },
-        "assertions": [
-          { "type": "STATUS", "comparator": "is", "expected": "200" },
-          { "type": "HEADER", "comparator": "contains", "expected": "javascript" }
-        ]
-      }
-    ]
-  }'
-```
-
-### 3.3 Server-Timing Header Check
-
-Confirms trace linking stays configured, not just that the page loads:
-
-```bash
-curl -X POST "https://api.<YOUR_REALM>.signalfx.com/v2/synthetics/tests/api" \
-  -H "Content-Type: application/json" \
-  -H "X-SF-TOKEN: <YOUR_TOKEN>" \
-  -d '{
-    "name": "Tomcat Host — Trace Header Present",
-    "frequency": 10,
-    "locations": ["aws-us-east-1"],
-    "active": true,
-    "requests": [
-      {
-        "name": "GET / (check headers)",
-        "request": {
-          "url": "http://<host>:8080/",
-          "method": "GET"
-        },
-        "assertions": [
-          { "type": "STATUS", "comparator": "is", "expected": "200" },
-          { "type": "HEADER", "comparator": "contains", "expected": "traceparent" }
-        ]
-      }
-    ]
-  }'
-```
-
-### 3.4 Multi-Step API Test (Chained Requests)
-
-```bash
-curl -X POST "https://api.<YOUR_REALM>.signalfx.com/v2/synthetics/tests/api" \
-  -H "Content-Type: application/json" \
-  -H "X-SF-TOKEN: <YOUR_TOKEN>" \
-  -d '{
-    "name": "Tomcat App — Homepage then Asset Chain",
-    "frequency": 10,
-    "locations": ["aws-us-east-1"],
-    "active": true,
-    "requests": [
-      {
-        "name": "Step 1 — Load homepage",
-        "request": {
-          "url": "http://<host>:8080/",
-          "method": "GET"
-        },
-        "assertions": [
-          { "type": "STATUS", "comparator": "is", "expected": "200" }
-        ],
-        "extractors": [
-          { "type": "HEADER", "source": "HEADERS", "expression": "ETag", "variable": "PAGE_ETAG" }
-        ]
-      },
-      {
-        "name": "Step 2 — Load RUM bundle",
-        "request": {
-          "url": "http://<host>:8080/splunk-rum-bundle.js",
-          "method": "GET"
-        },
-        "assertions": [
-          { "type": "STATUS", "comparator": "is", "expected": "200" }
-        ]
-      }
-    ]
-  }'
-```
+1. Go to **Synthetics → Tests**
+2. Click your test name
+3. You'll see:
+   - Pass/fail history
+   - Response time chart
+   - Screenshots (for browser tests)
 
 ---
 
-## Section 4 — Cleanup
+## Step 4 — (Optional) Get Alerted on Failure
 
-```bash
-# List all synthetic test IDs
-curl -X GET "https://api.<YOUR_REALM>.signalfx.com/v2/synthetics/tests" \
-  -H "X-SF-TOKEN: <YOUR_TOKEN>" | jq '.tests[].id'
-
-# Delete a specific test by ID
-curl -X DELETE "https://api.<YOUR_REALM>.signalfx.com/v2/synthetics/tests/<TEST_ID>" \
-  -H "X-SF-TOKEN: <YOUR_TOKEN>"
-```
+1. Open your test
+2. Click **Create Detector** (or **Add Alert**)
+3. Set condition: `if test fails 2 times in a row`
+4. Choose where to send the alert (email, Slack, etc.)
+5. Save
 
 ---
 
-## Summary
+## Step 5 — Clean Up (When Done)
 
-| Capability | What Was Configured |
-|-----------|---------------------|
-| **Synthetic Browser Test** | Homepage journey with content and asset assertions |
-| **Synthetic API Tests** | Homepage health check, RUM bundle availability, trace-header check, chained request example |
-| **APM Correlation** | Synthetic runs link to backend traces when the `Server-Timing` header is enabled |
+1. Go to **Synthetics → Tests**
+2. Click the **⋯** menu next to your test
+3. Select **Delete**
 
 ---
 
-## Reference Links
+## Quick Reference
 
-- [Splunk Synthetics Test Types](https://docs.splunk.com/observability/en/synthetics/test-config/test-config.html)
-- [Synthetics API Reference](https://dev.splunk.com/observability/reference/api/synthetics/latest)
+| Test Type | Checks | Frequency Example |
+|-----------|--------|--------------------|
+| Browser Test | Full page load, JS errors, screenshots | Every 5 min |
+| API Test | Uptime, status code, response time | Every 1 min |
+
+---
+
+## Reference Link
+
+- [Splunk Synthetics Docs](https://docs.splunk.com/observability/en/synthetics/test-config/test-config.html)
