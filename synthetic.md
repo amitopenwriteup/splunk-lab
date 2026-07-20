@@ -1,6 +1,6 @@
-# Synthetic Testing Lab — Splunk Observability Cloud
+# Simple Synthetic Testing Lab — Splunk Observability Cloud
 
-**Time:** ~30 minutes
+**Time:** ~15 minutes
 **Goal:** Create one browser test and one API test to monitor a website.
 
 ---
