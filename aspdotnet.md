@@ -1,10 +1,10 @@
-# Lab: ASP.NET App on IIS — Windows Server
+# Lab: ASP.NET App on IIS — Windows
 
 **Objective:** Configure metrics and APM trace collection for an ASP.NET application hosted on IIS, and validate in Splunk Observability Cloud.
 
 **Assumes:** The Splunk OTel Collector for Windows is already installed and running as the `splunk-otel-collector` Windows service.
 
-**Estimated time:** 25–35 minutes
+**Estimated time:** 45 minutes
 
 **Config file:** `C:\ProgramData\Splunk\OpenTelemetry Collector\agent_config.yaml`
 
@@ -27,22 +27,21 @@ Copy-Item "C:\ProgramData\Splunk\OpenTelemetry Collector\agent_config.yaml" `
 ## Exercise 1 — Install IIS and the .NET Hosting Bundle
 
 ```powershell
-Install-WindowsFeature -Name Web-Server -IncludeManagementTools
+if ((Get-CimInstance Win32_OperatingSystem).ProductType -eq 1) {
+    # Client OS (Windows 10/11)
+    Enable-WindowsOptionalFeature -Online -FeatureName `
+        IIS-WebServerRole, IIS-WebServer, IIS-CommonHttpFeatures, `
+        IIS-ManagementConsole, IIS-ManagementScriptingTools, IIS-HttpErrors, `
+        IIS-ApplicationDevelopment, IIS-NetFxExtensibility45, `
+        IIS-ISAPIExtensions, IIS-ISAPIFilter, IIS-ASPNET45 -All
+} else {
+    # Windows Server
+    Install-WindowsFeature -Name Web-Server -IncludeManagementTools
+}
 
 # Install the .NET Hosting Bundle (enables IIS to host ASP.NET Core apps)
-# CORRECTED: the old "/download/pr/latest/" pseudo-link is deprecated and
-# now returns HTTP 400. Use winget instead of a hardcoded URL, since it
-# always resolves to a valid current package.
 winget install Microsoft.DotNet.HostingBundle.9
 # ^ swap ".9" for whichever major .NET version your app targets (e.g. .8)
-#
-# Alternative if winget isn't available: get a real, versioned URL from
-# https://dotnet.microsoft.com/en-us/download/dotnet (select your version →
-# "Hosting Bundle"), then:
-#   $url = "<versioned-url-from-the-download-page>"
-#   $out = "$env:TEMP\dotnet-hosting-win.exe"
-#   Invoke-WebRequest -Uri $url -OutFile $out
-#   Start-Process -FilePath $out -ArgumentList "/quiet /norestart" -Wait
 
 # Deploy a sample app (or your own) to the default site
 Import-Module WebAdministration
@@ -66,13 +65,9 @@ Invoke-WebRequest -Uri "http://localhost/dotnetlab/" -UseBasicParsing | Select-O
 
 ---
 
-## Exercise 2 — Enable Performance Counters for IIS / ASP.NET
+## Exercise 2 — Enable Performance Counters for IIS
 
 Windows exposes IIS metrics via Performance Counters, which the collector reads directly (no extra agent config needed on the app side).
-
-> **CORRECTED:** The original version of this exercise checked the `ASP.NET Apps v4.0.30319` counter set. That counter set only exists for **classic ASP.NET apps running .NET Framework** — it is *not* registered by ASP.NET Core apps, which is what Exercise 1 actually deployed (via the .NET Hosting Bundle / ASP.NET Core Module on IIS). Checking it here would return an error or an empty set, not "0 with no traffic."
->
-> ASP.NET Core apps don't expose the classic per-app ASP.NET counters at all — under IIS they only get the generic `Process` counters for the worker process (`w3wp`), plus whatever the app emits itself (which is what Exercise 3/4's OTel receiver and auto-instrumentation are for). So this exercise now checks IIS-level counters only, which apply regardless of ASP.NET Framework vs. ASP.NET Core.
 
 ```powershell
 # Confirm the relevant counter set is present
@@ -102,10 +97,6 @@ notepad "C:\ProgramData\Splunk\OpenTelemetry Collector\agent_config.yaml"
 Add under `receivers:`:
 
 ```yaml
-# CORRECTED: removed the "ASP.NET Apps v4.0.30319" perfcounter block —
-# it doesn't apply to the ASP.NET Core app deployed in Exercise 1 (see the
-# note in Exercise 2). Left only the IIS-level "Web Service" counters,
-# which are valid for any app hosted under IIS.
 receivers:
   windowsperfcounters/iis:
     collection_interval: 10s
