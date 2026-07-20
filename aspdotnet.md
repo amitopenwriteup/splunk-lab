@@ -4,7 +4,7 @@
 
 **Assumes:** The Splunk OTel Collector for Windows is already installed and running as the `splunk-otel-collector` Windows service.
 
-**Estimated time:** 45 minutes
+**Estimated time:** 25–35 minutes
 
 **Config file:** `C:\ProgramData\Splunk\OpenTelemetry Collector\agent_config.yaml`
 
@@ -46,7 +46,15 @@ winget install Microsoft.DotNet.HostingBundle.9
 # Deploy a sample app (or your own) to the default site
 Import-Module WebAdministration
 New-Item -Path "C:\inetpub\wwwroot\dotnetlab" -ItemType Directory -Force
-# ... copy your published app files into C:\inetpub\wwwroot\dotnetlab ...
+
+# Quick sanity check — confirms IIS + routing work before deploying a real app.
+# Skip this if you're deploying an actual ASP.NET Core app below.
+"<h1>It works</h1>" | Out-File "C:\inetpub\wwwroot\dotnetlab\index.html"
+
+# To deploy a real ASP.NET Core app instead, publish it directly into the folder:
+#   dotnet publish -c Release -o C:\inetpub\wwwroot\dotnetlab
+# (Without this step the folder is empty and IIS returns 403.14 - Forbidden,
+# since directory browsing is off and there's no default document.)
 
 New-WebApplication -Site "Default Web Site" -Name "dotnetlab" `
     -PhysicalPath "C:\inetpub\wwwroot\dotnetlab" -ApplicationPool "DefaultAppPool"
