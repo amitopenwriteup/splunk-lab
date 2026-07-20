@@ -30,10 +30,19 @@ Copy-Item "C:\ProgramData\Splunk\OpenTelemetry Collector\agent_config.yaml" `
 Install-WindowsFeature -Name Web-Server -IncludeManagementTools
 
 # Install the .NET Hosting Bundle (enables IIS to host ASP.NET Core apps)
-$url = "https://download.visualstudio.microsoft.com/download/pr/latest/dotnet-hosting-win.exe"
-$out = "$env:TEMP\dotnet-hosting-win.exe"
-Invoke-WebRequest -Uri $url -OutFile $out
-Start-Process -FilePath $out -ArgumentList "/quiet /norestart" -Wait
+# CORRECTED: the old "/download/pr/latest/" pseudo-link is deprecated and
+# now returns HTTP 400. Use winget instead of a hardcoded URL, since it
+# always resolves to a valid current package.
+winget install Microsoft.DotNet.HostingBundle.9
+# ^ swap ".9" for whichever major .NET version your app targets (e.g. .8)
+#
+# Alternative if winget isn't available: get a real, versioned URL from
+# https://dotnet.microsoft.com/en-us/download/dotnet (select your version →
+# "Hosting Bundle"), then:
+#   $url = "<versioned-url-from-the-download-page>"
+#   $out = "$env:TEMP\dotnet-hosting-win.exe"
+#   Invoke-WebRequest -Uri $url -OutFile $out
+#   Start-Process -FilePath $out -ArgumentList "/quiet /norestart" -Wait
 
 # Deploy a sample app (or your own) to the default site
 Import-Module WebAdministration
@@ -59,19 +68,25 @@ Invoke-WebRequest -Uri "http://localhost/dotnetlab/" -UseBasicParsing | Select-O
 
 ## Exercise 2 — Enable Performance Counters for IIS / ASP.NET
 
-Windows exposes IIS and ASP.NET metrics via Performance Counters, which the collector reads directly (no extra agent config needed on the app side).
+Windows exposes IIS metrics via Performance Counters, which the collector reads directly (no extra agent config needed on the app side).
+
+> **CORRECTED:** The original version of this exercise checked the `ASP.NET Apps v4.0.30319` counter set. That counter set only exists for **classic ASP.NET apps running .NET Framework** — it is *not* registered by ASP.NET Core apps, which is what Exercise 1 actually deployed (via the .NET Hosting Bundle / ASP.NET Core Module on IIS). Checking it here would return an error or an empty set, not "0 with no traffic."
+>
+> ASP.NET Core apps don't expose the classic per-app ASP.NET counters at all — under IIS they only get the generic `Process` counters for the worker process (`w3wp`), plus whatever the app emits itself (which is what Exercise 3/4's OTel receiver and auto-instrumentation are for). So this exercise now checks IIS-level counters only, which apply regardless of ASP.NET Framework vs. ASP.NET Core.
 
 ```powershell
-# Confirm the relevant counter sets are present
+# Confirm the relevant counter set is present
 Get-Counter -ListSet "Web Service" | Select-Object CounterSetName
-Get-Counter -ListSet "ASP.NET Apps v4.0.30319" | Select-Object CounterSetName
+
+# Optional: confirm the IIS worker process is exposing generic Process counters
+Get-Counter -ListSet "Process" | Select-Object CounterSetName
 ```
 
 ### Validate
 
 ```powershell
 Get-Counter -Counter "\Web Service(_Total)\Current Connections"
-Get-Counter -Counter "\ASP.NET Apps v4.0.30319(_Total)\Requests/Sec"
+Get-Counter -Counter "\Process(w3wp)\% Processor Time"
 ```
 
 **Expected:** Counter values return without error (0 is fine if there's no traffic yet).
@@ -87,6 +102,10 @@ notepad "C:\ProgramData\Splunk\OpenTelemetry Collector\agent_config.yaml"
 Add under `receivers:`:
 
 ```yaml
+# CORRECTED: removed the "ASP.NET Apps v4.0.30319" perfcounter block —
+# it doesn't apply to the ASP.NET Core app deployed in Exercise 1 (see the
+# note in Exercise 2). Left only the IIS-level "Web Service" counters,
+# which are valid for any app hosted under IIS.
 receivers:
   windowsperfcounters/iis:
     collection_interval: 10s
@@ -102,11 +121,6 @@ receivers:
           - name: "Current Connections"
           - name: "Total Bytes Received"
           - name: "Total Bytes Sent"
-      - object: "ASP.NET Apps v4.0.30319"
-        instances: ["_Total"]
-        counters:
-          - name: "Requests/Sec"
-          - name: "Errors Total/Sec"
 ```
 
 Add `windowsperfcounters/iis` to the `metrics:` pipeline:
@@ -126,7 +140,7 @@ Get-EventLog -LogName Application -Source "splunk-otel-collector" -Newest 50
 ```
 
 ### Validate in the UI
-**Metrics finder** → search `iis.request.count`, `Web Service Current Connections`, `ASP.NET Apps Requests/Sec`.
+**Metrics finder** → search `iis.request.count`, `Web Service Current Connections`.
 
 ---
 
