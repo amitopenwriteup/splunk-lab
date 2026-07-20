@@ -110,16 +110,33 @@ receivers:
     collection_interval: 10s
     metrics:
       iis.request.count:
-        description: "Number of requests handled by IIS"
+        description: "Total number of requests received by IIS"
         unit: "{requests}"
+        gauge:
+      iis.current_connections:
+        description: "Current number of connections to the Web Service"
+        unit: "{connections}"
+        gauge:
+      iis.bytes_received:
+        description: "Total bytes received by the Web Service"
+        unit: "By"
+        gauge:
+      iis.bytes_sent:
+        description: "Total bytes sent by the Web Service"
+        unit: "By"
         gauge:
     perfcounters:
       - object: "Web Service"
         instances: ["_Total"]
         counters:
+          - name: "Total Method Requests"
+            metric: iis.request.count
           - name: "Current Connections"
+            metric: iis.current_connections
           - name: "Total Bytes Received"
+            metric: iis.bytes_received
           - name: "Total Bytes Sent"
+            metric: iis.bytes_sent
 ```
 
 Add `windowsperfcounters/iis` to the `metrics:` pipeline:
@@ -139,7 +156,7 @@ Get-EventLog -LogName Application -Source "splunk-otel-collector" -Newest 50
 ```
 
 ### Validate in the UI
-**Metrics finder** → search `iis.request.count`, `Web Service Current Connections`.
+**Metrics finder** → search `iis.request.count`, `iis.current_connections`, `iis.bytes_received`, `iis.bytes_sent`.
 
 ---
 
@@ -147,6 +164,10 @@ Get-EventLog -LogName Application -Source "splunk-otel-collector" -Newest 50
 
 ```powershell
 # Download and run the Splunk OTel .NET auto-instrumentation installer
+# Windows PowerShell doesn't always default to TLS 1.2, which GitHub requires —
+# force it, or Invoke-WebRequest fails with "connection was closed unexpectedly"
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
 $module_url = "https://github.com/signalfx/splunk-otel-dotnet/releases/latest/download/splunk-otel-dotnet-install.ps1"
 $download_path = Join-Path $env:TEMP "install.ps1"
 Invoke-WebRequest -Uri $module_url -OutFile $download_path
@@ -179,5 +200,5 @@ Get-Service W3SVC
 ```
 
 - **Infrastructure → Hosts → [host]** → Windows / IIS navigator appears.
-- **Metrics finder** → `iis.*` and `Web Service` counters resolve.
+- **Metrics finder** → `iis.request.count`, `iis.current_connections`, `iis.bytes_received`, `iis.bytes_sent` resolve.
 - **APM → Traces** → `dotnet-lab` service shows recent traces.
