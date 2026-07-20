@@ -131,3 +131,4 @@ terraform apply -var="cluster_name=my-cluster" -var="splunk_access_token=$SPLUNK
 kubectl get pods -n monitoring
 kubectl logs -n monitoring -l app=splunk-otel-collector
 ```
+
