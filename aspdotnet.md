@@ -164,14 +164,21 @@ Get-EventLog -LogName Application -Source "splunk-otel-collector" -Newest 50
 
 ```powershell
 # Download and run the Splunk OTel .NET auto-instrumentation installer
-# Windows PowerShell doesn't always default to TLS 1.2, which GitHub requires —
-# force it, or Invoke-WebRequest fails with "connection was closed unexpectedly"
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-
+# curl.exe (built into Windows 10/11) handles GitHub's release-asset redirects
+# more reliably than Invoke-WebRequest, which can drop the connection on some
+# networks/proxies with "connection was closed unexpectedly."
 $module_url = "https://github.com/signalfx/splunk-otel-dotnet/releases/latest/download/splunk-otel-dotnet-install.ps1"
 $download_path = Join-Path $env:TEMP "install.ps1"
-Invoke-WebRequest -Uri $module_url -OutFile $download_path
+curl.exe -L -o $download_path $module_url
 & $download_path
+```
+
+> **If `curl.exe` also fails** the same way, your network/proxy is likely blocking the CDN domain GitHub redirects release downloads through (`release-assets.githubusercontent.com` / `objects.githubusercontent.com`), even though `github.com` itself is reachable. Confirm with:
+> ```powershell
+> Test-NetConnection github.com -Port 443
+> Test-NetConnection release-assets.githubusercontent.com -Port 443
+> ```
+> If the second check fails, download the file manually in a browser from the same `$module_url`, save it to `$env:TEMP\install.ps1`, then continue from `& $download_path` above.
 
 # Load the helper module and register instrumentation for IIS
 Import-Module "$env:ProgramFiles\Splunk\OpenTelemetry .NET\Splunk.OTel.DotNet.psm1"
