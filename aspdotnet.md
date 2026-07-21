@@ -66,7 +66,7 @@ Restart-Service W3SVC
 
 ```powershell
 Get-Service W3SVC
-Invoke-WebRequest -Uri "http://localhost/dotnetlab/" -UseBasicParsing | Select-Object StatusCode
+Invoke-WebRequest -Uri "http://localhost/" -UseBasicParsing | Select-Object StatusCode
 ```
 
 **Expected:** `Status: Running` and HTTP `200`.
