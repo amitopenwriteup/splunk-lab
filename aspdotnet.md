@@ -89,7 +89,7 @@ Get-Counter -ListSet "Process" | Select-Object CounterSetName
 
 ```powershell
 Get-Counter -Counter "\Web Service(_Total)\Current Connections"
-Get-Counter -Counter "\Process(w3wp)\% Processor Time"
+Get-Counter -Counter "\Process(w3wp*)\% Processor Time"
 ```
 
 **Expected:** Counter values return without error (0 is fine if there's no traffic yet).
