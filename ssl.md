@@ -65,7 +65,7 @@ If you installed the private location agent as a Docker container, confirm it's 
 
 **Check the container is up and healthy:**
 ```bash
-docker ps --filter "name=synthetics"
+docker ps 
 docker logs <container_name> --tail 50
 ```
 Look for a log line confirming it registered/connected to Splunk Observability Cloud — the exact wording varies by version, but a repeating heartbeat/poll message is normal; a repeating auth or connection error is not.
