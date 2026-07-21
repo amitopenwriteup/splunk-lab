@@ -51,13 +51,6 @@ New-Item -Path "C:\inetpub\wwwroot\dotnetlab" -ItemType Directory -Force
 # Skip this if you're deploying an actual ASP.NET Core app below.
 "<h1>It works</h1>" | Out-File "C:\inetpub\wwwroot\dotnetlab\index.html"
 
-# To deploy a real ASP.NET Core app instead, publish it directly into the folder:
-#   dotnet publish -c Release -o C:\inetpub\wwwroot\dotnetlab
-# (Without this step the folder is empty and IIS returns 403.14 - Forbidden,
-# since directory browsing is off and there's no default document.)
-
-New-WebApplication -Site "Default Web Site" -Name "dotnetlab" `
-    -PhysicalPath "C:\inetpub\wwwroot\dotnetlab" -ApplicationPool "DefaultAppPool"
 
 Restart-Service W3SVC
 ```
