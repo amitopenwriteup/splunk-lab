@@ -10,6 +10,7 @@
 ## 2. Providers
 
 ```hcl
+tee providers.tf > /dev/null <<'EOF'
 terraform {
   required_version = ">= 1.5"
 
@@ -34,6 +35,7 @@ provider "helm" {
     config_path = "~/.kube/config"
   }
 }
+EOF
 ```
 
 If Terraform is running inside the cluster (e.g. a CI runner with a service account), swap `config_path` for in-cluster auth, or for EKS/GKE/AKS use the respective data source (`aws_eks_cluster`, `google_container_cluster`, etc.) to populate `host`, `cluster_ca_certificate`, and `token` instead of a kubeconfig file.
