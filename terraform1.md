@@ -43,16 +43,19 @@ If Terraform is running inside the cluster (e.g. a CI runner with a service acco
 ## 3. Namespace
 
 ```hcl
+tee namespace.tf > /dev/null <<'EOF'
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"
   }
 }
+EOF
 ```
 
 ## 4. Helm release for the collector
 
 ```hcl
+tee helm_release.tf > /dev/null <<'EOF'
 resource "helm_release" "splunk_otel_collector" {
   name       = "splunk-otel-collector"
   repository = "https://signalfx.github.io/splunk-otel-collector-chart"
@@ -76,24 +79,26 @@ resource "helm_release" "splunk_otel_collector" {
     })
   ]
 }
+EOF
 ```
 
 ## 5. Variables
 
 ```hcl
+tee variables.tf > /dev/null <<'EOF'
 variable "cluster_name" {
   type        = string
   description = "Name reported to Splunk Observability Cloud"
 }
 
 variable "environment" {
-  type        = string
-  default     = "prod"
+  type    = string
+  default = "prod"
 }
 
 variable "splunk_realm" {
-  type        = string
-  default     = "us1"
+  type    = string
+  default = "us1"
 }
 
 variable "splunk_access_token" {
@@ -101,6 +106,7 @@ variable "splunk_access_token" {
   description = "Splunk Observability Cloud org access token"
   sensitive   = true
 }
+EOF
 ```
 
 ## 6. Do you need to put the token in the `.tf` file?
