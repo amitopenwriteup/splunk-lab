@@ -67,55 +67,96 @@ Do all of these steps in the Splunk Cloud web UI before touching the Linux box.
 4. Click **Save**.
 5. Confirm `api_logs` now appears in the index list with status **Enabled**.
 
-### Step 2.2 — Add Your Linux Host's IP to the Allow List
+### Step 2.2 — Add Your Linux Host's IP to the Network Allow List
 
 This step is mandatory — without it, Splunk Cloud will silently reject connections from your Linux machine later.
 
-1. Go to **Apps** (top nav) → **Manage Apps**.
-2. Find and open the **IP Allow List Management** app (search for it in the apps list if not visible; on some trial stacks this is under **Settings → Server Settings → IP Allow List**, wording varies slightly by stack version).
-3. Find your Linux machine's **public IP address**. If you don't know it, run this on the Linux host:
+1. Click the **Settings** gear icon (top right).
+2. Go to **Secrets management → Network allow list** (breadcrumb shows `Secrets management / Network allow list`).
+3. You'll see a list of existing entries — by default there's often a `*` wildcard entry present. You can leave `*` in place during the trial (it means "allow from anywhere"), or remove it later and lock things down to specific IPs once you're done testing.
+4. Find your Linux machine's **public IP address**. If you don't know it, run this on the Linux host:
    ```bash
    curl ifconfig.me
    ```
    Copy the IP it prints.
-4. In the IP Allow List app, add that IP (or a small CIDR range covering it, e.g. `203.0.113.5/32`) to the allow list for:
-   - **Search head/UI access** (if you'll browse Splunk Cloud from that same machine or network)
-   - **HEC (HTTP Event Collector)**
-   - **S2S / forwarder traffic (port 9997)**
-5. Save each entry. Changes can take a minute or two to propagate.
+5. Click **+ Add network**, and enter that IP into the new text field (e.g., `49.43.35.253`). You can enter a single IPv4/IPv6 address, a CIDR block (e.g., `49.43.35.0/24`), or a DNS name. Prefixing an entry with `!` explicitly **blocks** that network instead of allowing it.
+6. The page auto-saves each entry as you add it (no separate "Save" button) — confirm your new IP appears in the list alongside any existing entries, then click the trash-can icon next to any entry you want to remove (e.g., removing the `*` wildcard once you've added your specific IP, if you want to tighten access).
+
+> **Note:** This particular allow list (under **Secrets management**) governs network access to Splunk Cloud generally, including clear-text secrets/API access. Depending on your stack version, **HEC** and **forwarder (S2S/9997)** traffic may share this same allow list, or may have their own separate allow list under **Settings → Data Inputs → HTTP Event Collector** (for HEC) or **Settings → Forwarder Management** (for S2S). If your forwarder or HEC test later fails to connect even after adding your IP here, check those sections too for a second, traffic-specific allow list.
 
 ### Step 2.3 — Download the Universal Forwarder Credentials Package
 
 Splunk Cloud requires a stack-specific credentials package to let a Universal Forwarder authenticate — you cannot point a UF at Splunk Cloud with just a plain hostname and port.
 
-1. Go to **Settings** → **Forwarder Management** (some stacks label this **Universal Forwarder** under **Apps**, or it's under **Settings → Data Inputs → Forwarding and receiving**).
-2. Look for **Download Universal Forwarder Credentials** (sometimes shown as a button labeled **"Get Splunk Cloud Universal Forwarder credentials"** or found under **Settings → Server Settings → General Settings → Forwarding**).
-3. Click it — this downloads a small package, typically named something like `splunkclouduf.spl`.
+1. From the top navigation bar (not Settings), go to **Apps → Universal Forwarder**. This is a dedicated app pre-installed on every Splunk Cloud stack that walks through a 5-step checklist: download UF, install UF, download credentials, install credentials, configure inputs.
+2. You only need **step 3** of that checklist right now: click the green **Download Universal Forwarder Credentials** button.
+3. This downloads a small package named `splunkclouduf.spl`.
 4. Save this file somewhere you can retrieve it from — you'll transfer it to the Linux machine in Part 3. **Do not open or extract it yet.**
 
-> If you cannot locate this option directly, go to **Settings → Data Inputs**, and look for a **Forwarding and receiving** or **Universal Forwarder** section — Splunk periodically relabels this in the UI, but the underlying artifact (a downloadable credentials `.spl`) is present on every Splunk Cloud stack.
+> The page's steps 1, 2, 4, and 5 (download/install the UF binary, install the credentials package, configure inputs) are the same actions this lab walks you through manually in Parts 3 and 4 — you don't need to follow their linked instructions separately, just use this lab's steps.
+
+> If you don't see **Universal Forwarder** listed under **Apps**, click **Apps → Manage Apps** and check if it's installed but hidden from the main nav — it ships by default on Splunk Cloud, so it should be there. You can also reach the same page directly at:
+> ```
+> https://<your-stack-name>.splunkcloud.com/en-US/app/splunkclouduf/setupuf
+> ```
 
 ### Step 2.4 — Note Your Forwarder Input Endpoint
 
-1. Still under **Settings → Forwarder Management** (or **Server Settings → General Settings**), note the **receiving endpoint** shown for forwarders — this is usually:
+The **Universal Forwarder** app page itself (shown above) doesn't display the receiving endpoint directly — it's a 5-step checklist (Download UF → Install UF → Download credentials → Install credentials → Configure inputs), not a settings page. You'll actually see the exact endpoint two ways:
+
+1. **After downloading the credentials package** (next step), the endpoint is embedded inside it — you'll confirm it in Part 3, Step 3.8, when you inspect `outputs.conf` on the Linux host after installing the package. That's the authoritative source, since it's stack-specific.
+2. As a preview, it typically follows this pattern based on your stack name:
    ```
    inputs<your-stack-id>.splunkcloud.com:9997
    ```
-2. Write this down exactly as shown — you'll need to confirm it matches what's inside the credentials package in Part 3.
+   For example, if your stack URL is `https://prd-p-abc123.splunkcloud.com`, the forwarder input endpoint is usually `inputs-prd-p-abc123.splunkcloud.com:9997`. Treat this as a guess to sanity-check against, not a value to hardcode — verify it from `outputs.conf` once you have the real credentials package installed.
+
+You can proceed straight to Step 2.5 (or Part 3) now — there's nothing more to note on this page itself.
 
 ### Step 2.5 — Create a HEC Token (Optional Alternate Path)
 
 If you'd rather test with HEC instead of, or in addition to, the Universal Forwarder:
 
 1. **Settings → Data Inputs → HTTP Event Collector**.
-2. If HEC is not yet enabled, click **Global Settings**, set **All Tokens** to **Enabled**, keep **Enable SSL** checked, click **Save**.
-3. Click **New Token**.
-4. **Name**: `lab-api-hec`. Click **Next**.
-5. **Source type**: choose **New** → type `api_json`. **Index**: select `api_logs`. Click **Review**, then **Submit**.
-6. Copy the generated **Token Value** shown on the confirmation screen and store it somewhere safe — it is shown only once in full.
-7. Note the HEC endpoint shown on the same page, typically:
+2. If HEC is not yet enabled, click **Global Settings**. In the **Edit Global Settings** dialog, set **All Tokens** to **Enabled**, optionally set a **Default Source Type** and **Default Index**, keep **Enable SSL** checked, and note the **HTTP Port Number** field (defaults to `8088`). Click **Save**.
+   > This dialog is also just config — like the token confirmation screen, **it does not show your HEC URI either**, only the port number Splunk listens on. The full endpoint has to be constructed by hand (Step 8 below) since Splunk Cloud's web console doesn't display it anywhere in the UI.
+   > Double check any typed values here — e.g. if you're reusing a **Default Source Type**, make sure it's spelled `api_json`, not `api_josn` or similar, since a typo here silently creates/uses a different sourcetype than the one you intend.
+3. Click **New Token** — this launches an **Add Data** wizard with four stages: **Select Source → Input Settings → Review → Done**.
+4. **Select Source**: name the token (e.g., `lab-api-hec`), click **Next**.
+5. **Input Settings**: set **Source type** → **New** → type `api_json`. Set **Index** → `api_logs`. Click **Review**.
+6. **Review**: confirm the settings, click **Submit**.
+7. **Done**: you'll land on a confirmation screen reading **"Token has been created successfully."** with a **Token Value** field (partially masked, e.g. `86518f6a-86b2-4e7a-8b83-4a7926f...`). Click into that field to reveal/select the full value, then copy and store it somewhere safe — this is the only time it's shown in full.
+
+8. **Determine your HEC endpoint.** There is no page in the Splunk Cloud web console (not the token page, not Global Settings) that prints the full URI, and the hostname pattern varies by stack — don't assume a prefix like `http-inputs-` or `input-` exists for your stack. Confirm it directly:
+
+   a. Try resolving the candidate prefixes first:
+      ```bash
+      nslookup http-inputs-<your-stack-name>.splunkcloud.com
+      nslookup input-<your-stack-name>.splunkcloud.com
+      nslookup <your-stack-name>.splunkcloud.com
+      ```
+      Only one of these is likely to resolve — for some stacks (as in this lab), **neither ingest-prefix variant exists**, and HEC simply runs on port 8088 of your main stack hostname (the same one you log into Splunk Cloud Web with).
+
+   b. Once you know which hostname resolves, confirm HEC is actually listening there with the built-in health check (no token needed):
+      ```bash
+      curl -v https://<resolved-hostname>:8088/services/collector/health
+      ```
+      A response like `{"text":"HEC is healthy","code":17}` confirms the host/port are correct.
+
+   c. **If instead you get `curl: (60) SSL certificate problem: self-signed certificate in certificate chain`**, the host/port are correct, but something between your Linux box and Splunk Cloud is intercepting and re-signing the TLS connection — genuine Splunk Cloud certs are always publicly trusted (e.g. DigiCert), never self-signed. This is typically a corporate proxy/firewall doing SSL inspection, or endpoint security software on the host. Identify it:
+      ```bash
+      openssl s_client -connect <resolved-hostname>:8088 -showcerts </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject
+      ```
+      Check the **issuer** line — if it names your company, a security vendor (e.g. Zscaler, Palo Alto), or anything other than a known public CA, that's your interceptor. Fix it by adding your organization's root CA to the system trust store:
+      ```bash
+      sudo cp your-corp-root-ca.crt /etc/pki/ca-trust/source/anchors/
+      sudo update-ca-trust
+      ```
+      As a one-time diagnostic only (not for real use), you can bypass verification with `curl -k` to confirm the endpoint itself is otherwise fine while you sort out the trust chain — but don't leave `-k` in any script or long-term command you keep, since it disables certificate validation entirely.
+
+   Once resolved, your event endpoint is:
    ```
-   https://<your-stack-name>.splunkcloud.com:8088/services/collector/event
+   https://<resolved-hostname>:8088/services/collector/event
    ```
 
 This workshop's main path is the Universal Forwarder (Part 3), since it's the more common production pattern for tailing existing log files — but Part 4 shows how to validate with a manual HEC test too.
@@ -578,8 +619,10 @@ Wait ~10–15 seconds, then re-run the same search in Splunk Cloud (or click the
 
 ## Part 5 — (Optional) Manually Validate the HEC Path Too
 
+If you created a HEC token in Step 2.5, confirm that path also works, entirely by hand from the terminal. Use the trial-stack endpoint pattern from Step 2.5.9 (`http-inputs-<stack>.splunkcloud.com:8088` on a free trial), and ideally run the `/services/collector/health` check from that step first if you haven't already:
+
 ```bash
-curl https://<your-stack-name>.splunkcloud.com:8088/services/collector/event \
+curl https://http-inputs-<your-stack-name>.splunkcloud.com:8088/services/collector/event \
   -H "Authorization: Splunk <HEC_TOKEN>" \
   -d '{"event": {"timestamp":"2026-08-19T10:25:00Z","service":"checkout-api","method":"POST","endpoint":"/v1/orders","status":503,"latency_ms":2210,"request_id":"req-98217","trace_id":"trace-4f11"}, "sourcetype":"api_json","index":"api_logs"}'
 ```
@@ -633,4 +676,5 @@ Confirm the event shows up. You now have **two independently verified ingestion 
 | Fields not auto-extracted (only `_raw` shown) | `props.conf` missing/wrong, or not applied at the indexing tier | Re-check `KV_MODE=json`; for durable setups, push parsing config as a Splunk Cloud app rather than a UF-local file |
 | `splunk install app` fails with an auth error | Wrong local UF admin password | Reset via `splunk edit user admin -password <new> -auth admin:<old>` |
 | HEC returns 403 | Token disabled, wrong index/sourcetype restriction on the token, or IP not allow-listed for HEC | Recheck Step 2.5 and 2.2 |
+| `curl: could not connect` / connection refused to HEC | Wrong host pattern (missing `http-inputs-` prefix) or wrong port for your stack type | Try the `/services/collector/health` check from Step 2.5.9 first; trial = `http-inputs-<stack>...:8088`, paid AWS = `...:443`, paid GCP = `http-inputs.<stack>...:443` |
 | Trial license blocks ingestion | Daily indexing volume cap hit | Check **Settings → License Usage**; wait for daily reset or reduce test data volume |
