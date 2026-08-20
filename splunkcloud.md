@@ -289,7 +289,7 @@ Confirm the `server =` value matches what you noted in Step 2.4. If it doesn't m
 ### Step 3.9 — Restart the Forwarder to Apply the Cloud Config
 
 ```bash
-sudo /opt/splunkforwarder/bin/splunk restart
+sudo /opt/splunkforwarder/bin/SplunkForwarder restart
 ```
 
 ### Step 3.10 — Verify Forwarder Connectivity to Splunk Cloud
