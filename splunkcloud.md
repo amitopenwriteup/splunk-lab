@@ -72,7 +72,7 @@ Do all of these steps in the Splunk Cloud web UI before touching the Linux box.
 This step is mandatory — without it, Splunk Cloud will silently reject connections from your Linux machine later.
 
 1. Click the **Settings** gear icon (top right).
-2. Go to **Secrets management → Network allow list** (breadcrumb shows `Secrets management / Network allow list`).
+2. Go to **Servier -> Secrets management → Network allow list** (breadcrumb shows `Secrets management / Network allow list`).
 3. You'll see a list of existing entries — by default there's often a `*` wildcard entry present. You can leave `*` in place during the trial (it means "allow from anywhere"), or remove it later and lock things down to specific IPs once you're done testing.
 4. Find your Linux machine's **public IP address**. If you don't know it, run this on the Linux host:
    ```bash
